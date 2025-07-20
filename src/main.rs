@@ -3,10 +3,11 @@
 use std::{error::Error, net::TcpStream};
 
 use crate::{
-    data::{DataStream, Deserialize},
-    datatypes::{LengthInferredByteArray, VarInt},
+    data::ReadWrite,
+    datatypes::VarInt,
     packets::{
-        receive_packet, send_packet, AcknowledgeFinishConfiguration, FeatureFlags, Handshake, KnownPacks, LoginAcknowledged, LoginStart, LoginSuccess, PluginMessage
+        AcknowledgeFinishConfiguration, FeatureFlags, Handshake, KnownPacks, LoginAcknowledged,
+        LoginStart, LoginSuccess, PacketReceiver, PluginMessage, send_packet,
     },
 };
 
@@ -36,35 +37,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     )?;
 
-    let success: LoginSuccess = receive_packet(&mut stream)?;
-    dbg!(success);
+    let mut receiver = PacketReceiver::new();
+    receiver.set_callback(|_packet: LoginSuccess, stream: &mut dyn ReadWrite| {
+        send_packet(stream, LoginAcknowledged {})?;
+        Ok(())
+    });
 
-    send_packet(&mut stream, LoginAcknowledged {})?;
+    receiver.set_callback(|_packet: PluginMessage, _stream: &mut dyn ReadWrite| Ok(()));
 
-    let plugin_message: PluginMessage = receive_packet(&mut stream)?;
-    dbg!(plugin_message);
+    receiver.set_callback(|_packet: FeatureFlags, _stream: &mut dyn ReadWrite| Ok(()));
 
-    let feature_flags: FeatureFlags = receive_packet(&mut stream)?;
-    dbg!(feature_flags);
-
-    let known_packs: KnownPacks = receive_packet(&mut stream)?;
-    dbg!(&known_packs);
-
-    send_packet(&mut stream, known_packs)?;
-
-    send_packet(&mut stream, AcknowledgeFinishConfiguration {})?;
+    receiver.set_callback(|packet: KnownPacks, stream: &mut dyn ReadWrite| {
+        send_packet(stream, packet)?;
+        send_packet(stream, AcknowledgeFinishConfiguration {})?;
+        Ok(())
+    });
 
     loop {
-        let size = match VarInt::read(&mut stream) {
-            Ok(r) => r as usize,
-            Err(e) => {
-                println!("{:?}", e);
-                continue;
-            }
-        };
-        let mut stream = DataStream::new(&mut stream, size);
-        let id = VarInt::deserialize(&mut stream)?;
-        dbg!(id);
-        LengthInferredByteArray::deserialize(&mut stream)?;
+        println!("{:?}", receiver.receive_packet(&mut stream));
     }
 }

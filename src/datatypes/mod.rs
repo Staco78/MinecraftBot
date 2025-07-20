@@ -30,7 +30,7 @@ impl Deserialize for bool {
         match byte {
             0 => Ok(false),
             1 => Ok(true),
-            k => Err(DeserializeError::InvalidData(format!(
+            k => Err(DeserializeError::MalformedPacket(format!(
                 "Invalid bool value (found {})",
                 k
             ))),
@@ -119,7 +119,7 @@ impl Deserialize for String {
         let n = if n >= 0 {
             n as usize
         } else {
-            return Err(DeserializeError::InvalidData(
+            return Err(DeserializeError::MalformedPacket(
                 "Negative String length".to_string(),
             ));
         };
@@ -140,14 +140,14 @@ impl Deserialize for String {
             read!(1);
             let width = utf8_char_width(buf[i]);
             if !(1..=3).contains(&width) {
-                return Err(DeserializeError::InvalidData("Invalid UTF-8".to_string()));
+                return Err(DeserializeError::MalformedPacket("Invalid UTF-8".to_string()));
             }
             read!(width - 1);
         }
 
         buf.truncate(initialized);
         let str = String::from_utf8(buf)
-            .map_err(|_| DeserializeError::InvalidData("Invalid UTF-8".to_string()))?;
+            .map_err(|_| DeserializeError::MalformedPacket("Invalid UTF-8".to_string()))?;
         Ok(str)
     }
 }

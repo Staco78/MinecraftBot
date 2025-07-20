@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+mod receive;
+
+pub use receive::*;
+
 use macros::{Deserialize, Serialize};
 
 use crate::{
@@ -11,7 +15,7 @@ pub trait ServerboundPacket: Serialize {
     const ID: u32;
 }
 
-pub trait ClientboundPacket: Deserialize {
+pub trait ClientboundPacket: Deserialize  {
     const ID: u32;
 }
 

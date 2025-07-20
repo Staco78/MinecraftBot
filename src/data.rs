@@ -16,8 +16,8 @@ pub trait Serialize {
 pub enum DeserializeError {
     #[error("IO error")]
     Io(#[from] io::Error),
-    #[error("Invalid data: {0}")]
-    InvalidData(String),
+    #[error("Malformed packet: {0}")]
+    MalformedPacket(String),
 }
 
 pub trait Deserialize: Sized {

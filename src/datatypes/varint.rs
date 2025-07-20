@@ -9,11 +9,25 @@ macro_rules! Var {
         pub struct $SelfT(pub $inner);
 
         impl $SelfT {
-            pub fn read(from: &mut dyn std::io::Read) -> Result<$inner, DeserializeError> {
+            fn read_(
+                from: &mut dyn std::io::Read,
+                max_size: Option<usize>,
+            ) -> Result<$inner, DeserializeError> {
                 let mut val = 0 as $inner;
                 let mut i = 0;
 
                 loop {
+                    if i == $max_len {
+                        return Err(DeserializeError::MalformedPacket(
+                            concat!(stringify!($SelfT), " too long").to_string(),
+                        ));
+                    }
+                    if Some(i) == max_size {
+                        return Err(DeserializeError::MalformedPacket(
+                            concat!("No bytes remaining to read ", stringify!($SelfT)).to_string(),
+                        ));
+                    }
+
                     let mut byte = 0;
                     from.read_exact(slice::from_mut(&mut byte))?;
 
@@ -24,15 +38,13 @@ macro_rules! Var {
                     if byte & 0x80 == 0 {
                         break;
                     }
-                    if i == $max_len {
-                        return Err(DeserializeError::InvalidData(format!(concat!(
-                            stringify!($SelfT),
-                            " too long"
-                        ))));
-                    }
                 }
 
                 Ok(val)
+            }
+
+            pub fn read(from: &mut dyn std::io::Read) -> Result<$inner, DeserializeError> {
+                Self::read_(from, None)
             }
         }
 

@@ -3,7 +3,10 @@ mod varint;
 pub use varint::*;
 
 use core::slice;
-use std::{io, mem::MaybeUninit};
+use std::{
+    io::{Read, Write},
+    mem::MaybeUninit,
+};
 
 use crate::data::{Deserialize, DeserializeError, Serialize, SerializeError};
 
@@ -12,22 +15,18 @@ impl Serialize for bool {
         1
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
         match *self {
-            true => to.write_all(&[1]),
-            false => to.write_all(&[0]),
+            true => stream.write_all(&[1]),
+            false => stream.write_all(&[0]),
         }
     }
 }
 
 impl Deserialize for bool {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         let mut byte = 0;
-        from.read_exact(slice::from_mut(&mut byte))?;
-        *remaining_size -= 1;
+        stream.read_exact(slice::from_mut(&mut byte))?;
         match byte {
             0 => Ok(false),
             1 => Ok(true),
@@ -48,9 +47,9 @@ macro_rules! SerializeNbr {
 
             fn serialize(
                 &self,
-                to: &mut dyn std::io::Write,
+                stream: &mut crate::data::DataStream,
             ) -> Result<(), $crate::data::SerializeError> {
-                to.write_all(&self.to_be_bytes())
+                stream.write_all(&self.to_be_bytes())
             }
         }
     };
@@ -60,13 +59,11 @@ macro_rules! DeserializeNbr {
     ($SelfT: ty) => {
         impl Deserialize for $SelfT {
             fn deserialize(
-                from: &mut dyn std::io::Read,
-                remaining_size: &mut usize,
+                stream: &mut crate::data::DataStream,
             ) -> Result<Self, $crate::data::DeserializeError> {
                 let mut buf = [0; core::mem::size_of::<Self>()];
-                from.read_exact(&mut buf)?;
+                stream.read_exact(&mut buf)?;
                 let val = <$SelfT>::from_be_bytes(buf);
-                *remaining_size -= core::mem::size_of::<Self>();
                 Ok(val)
             }
         }
@@ -107,21 +104,18 @@ impl Serialize for String {
         VarInt(n as i32).size() + self.len()
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
         let n = self.chars().count();
         assert!(n <= i32::MAX as usize);
-        VarInt(n as i32).serialize(to)?;
-        to.write_all(self.as_bytes())?;
+        VarInt(n as i32).serialize(stream)?;
+        stream.write_all(self.as_bytes())?;
         Ok(())
     }
 }
 
 impl Deserialize for String {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
-        let n = VarInt::deserialize(from, remaining_size)?.0;
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let n = VarInt::deserialize(stream)?.0;
         let n = if n >= 0 {
             n as usize
         } else {
@@ -136,7 +130,7 @@ impl Deserialize for String {
 
         macro_rules! read {
             ($count: expr) => {{
-                from.read_exact(&mut buf[initialized..(initialized + $count)])?;
+                stream.read_exact(&mut buf[initialized..(initialized + $count)])?;
                 initialized += $count;
             }};
         }
@@ -152,7 +146,6 @@ impl Deserialize for String {
         }
 
         buf.truncate(initialized);
-        *remaining_size -= initialized;
         let str = String::from_utf8(buf)
             .map_err(|_| DeserializeError::InvalidData("Invalid UTF-8".to_string()))?;
         Ok(str)
@@ -191,29 +184,26 @@ impl<const N: usize, T: Serialize> Serialize for [T; N] {
         self.iter().map(Serialize::size).sum()
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
         for x in self {
-            x.serialize(to)?;
+            x.serialize(stream)?;
         }
         Ok(())
     }
 }
 
 impl<const N: usize, T: Deserialize> Deserialize for [T; N] {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
-        // FIXME: replace by array::try_from_fn once stable
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        // FIXME: replace by array::try_stream_fn once stable
 
         let mut data = [const { MaybeUninit::uninit() }; N];
 
         for x in &mut data {
-            x.write(T::deserialize(from, remaining_size)?);
+            x.write(T::deserialize(stream)?);
         }
 
         // FIXME: replace with MaybeUninit::array_assume_init once stable
-        // Safety: each cell has been written to
+        // Safety: each cell has been written stream
         let data: Self = unsafe { core::mem::transmute_copy(&data) };
 
         Ok(data)
@@ -226,24 +216,21 @@ impl<T: Serialize> Serialize for Vec<T> {
         VarInt(self.len() as i32).size() + self.iter().map(Serialize::size).sum::<usize>()
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
         assert!(self.len() <= i32::MAX as _);
-        VarInt(self.len() as i32).serialize(to)?;
+        VarInt(self.len() as i32).serialize(stream)?;
         for x in self {
-            x.serialize(to)?;
+            x.serialize(stream)?;
         }
         Ok(())
     }
 }
 
 impl<T: Deserialize> Deserialize for Vec<T> {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
-        let len = VarInt::deserialize(from, remaining_size)?.0 as usize;
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let len = VarInt::deserialize(stream)?.0 as usize;
         let data = (0..len)
-            .map(|_| T::deserialize(from, remaining_size))
+            .map(|_| T::deserialize(stream))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(data)
     }
@@ -257,23 +244,20 @@ impl<T: Serialize> Serialize for Option<T> {
         }
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
-        self.is_some().serialize(to)?;
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+        self.is_some().serialize(stream)?;
         if let Some(val) = self {
-            val.serialize(to)?;
+            val.serialize(stream)?;
         }
         Ok(())
     }
 }
 
 impl<T: Deserialize> Deserialize for Option<T> {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
-        let is_some = bool::deserialize(from, remaining_size)?;
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let is_some = bool::deserialize(stream)?;
         if is_some {
-            let val = T::deserialize(from, remaining_size)?;
+            let val = T::deserialize(stream)?;
             Ok(Some(val))
         } else {
             Ok(None)
@@ -285,13 +269,9 @@ impl<T: Deserialize> Deserialize for Option<T> {
 pub struct LengthInferredByteArray(pub Box<[u8]>);
 
 impl Deserialize for LengthInferredByteArray {
-    fn deserialize(
-        from: &mut dyn io::Read,
-        remaining_size: &mut usize,
-    ) -> Result<Self, DeserializeError> {
-        let mut buf = vec![0; *remaining_size];
-        from.read_exact(&mut buf)?;
-        *remaining_size = 0;
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let mut buf = vec![0; stream.remaining_size()];
+        stream.read_exact(&mut buf)?;
         Ok(Self(buf.into_boxed_slice()))
     }
 }
@@ -301,7 +281,7 @@ impl Serialize for LengthInferredByteArray {
         self.0.len()
     }
 
-    fn serialize(&self, to: &mut dyn io::Write) -> Result<(), SerializeError> {
-        to.write_all(&self.0)
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+        stream.write_all(&self.0)
     }
 }

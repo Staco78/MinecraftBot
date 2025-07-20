@@ -1,3 +1,4 @@
+use std::io::{Read, Write};
 use std::slice;
 
 use crate::data::{Deserialize, DeserializeError, Serialize};
@@ -47,10 +48,10 @@ macro_rules! Var {
 
             fn serialize(
                 &self,
-                to: &mut dyn std::io::Write,
+                stream: &mut crate::data::DataStream,
             ) -> Result<(), crate::data::SerializeError> {
                 if self.0 == 0 {
-                    to.write_all(&[0])?;
+                    stream.write_all(&[0])?;
                     return Ok(());
                 }
                 let mut val = self.0;
@@ -60,7 +61,7 @@ macro_rules! Var {
                     if val != 0 {
                         data |= 0x80;
                     }
-                    to.write_all(slice::from_ref(&data))?;
+                    stream.write_all(slice::from_ref(&data))?;
                 }
 
                 Ok(())
@@ -68,12 +69,8 @@ macro_rules! Var {
         }
 
         impl Deserialize for $SelfT {
-            fn deserialize(
-                from: &mut dyn std::io::Read,
-                remaining_size: &mut usize,
-            ) -> Result<Self, DeserializeError> {
-                let val = Self(Self::read(from)?);
-                *remaining_size -= val.size();
+            fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+                let val = Self(Self::read(stream as &mut dyn Read)?);
                 Ok(val)
             }
         }

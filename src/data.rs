@@ -1,4 +1,7 @@
-use std::io::{self, Read, Write};
+mod stream;
+use std::io;
+
+pub use stream::{DataStream, ReadWrite};
 
 use thiserror::Error;
 
@@ -6,7 +9,7 @@ pub type SerializeError = io::Error;
 
 pub trait Serialize {
     fn size(&self) -> usize;
-    fn serialize(&self, to: &mut dyn Write) -> Result<(), SerializeError>;
+    fn serialize(&self, stream: &mut DataStream) -> Result<(), SerializeError>;
 }
 
 #[derive(Debug, Error)]
@@ -18,5 +21,5 @@ pub enum DeserializeError {
 }
 
 pub trait Deserialize: Sized {
-    fn deserialize(from: &mut dyn Read, remaining_size: &mut usize) -> Result<Self, DeserializeError>;
+    fn deserialize(stream: &mut DataStream) -> Result<Self, DeserializeError>;
 }

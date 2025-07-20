@@ -3,11 +3,10 @@
 use std::{error::Error, net::TcpStream};
 
 use crate::{
-    data::Deserialize,
+    data::{DataStream, Deserialize},
     datatypes::{LengthInferredByteArray, VarInt},
     packets::{
-        AcknowledgeFinishConfiguration, FeatureFlags, Handshake, KnownPacks, LoginAcknowledged,
-        LoginStart, LoginSuccess, PluginMessage, receive_packet, send_packet,
+        receive_packet, send_packet, AcknowledgeFinishConfiguration, FeatureFlags, Handshake, KnownPacks, LoginAcknowledged, LoginStart, LoginSuccess, PluginMessage
     },
 };
 
@@ -56,15 +55,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     send_packet(&mut stream, AcknowledgeFinishConfiguration {})?;
 
     loop {
-        let mut size = match VarInt::read(&mut stream) {
+        let size = match VarInt::read(&mut stream) {
             Ok(r) => r as usize,
             Err(e) => {
                 println!("{:?}", e);
                 continue;
             }
         };
-        let id = VarInt::deserialize(&mut stream, &mut size)?;
+        let mut stream = DataStream::new(&mut stream, size);
+        let id = VarInt::deserialize(&mut stream)?;
         dbg!(id);
-        LengthInferredByteArray::deserialize(&mut stream, &mut size)?;
+        LengthInferredByteArray::deserialize(&mut stream)?;
     }
 }

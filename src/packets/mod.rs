@@ -1,11 +1,9 @@
 #![allow(dead_code)]
 
-use std::io::{Read, Write};
-
 use macros::{Deserialize, Serialize};
 
 use crate::{
-    data::{Deserialize, DeserializeError, Serialize, SerializeError},
+    data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
     datatypes::{LengthInferredByteArray, VarInt},
 };
 
@@ -18,22 +16,24 @@ pub trait ClientboundPacket: Deserialize {
 }
 
 pub fn send_packet<T: ServerboundPacket>(
-    to: &mut dyn Write,
+    stream : &mut dyn ReadWrite,
     packet: T,
 ) -> Result<(), SerializeError> {
+    let mut stream = DataStream::new(stream, 0);
     let id = VarInt(T::ID as i32);
     let size = packet.size() + id.size();
     assert!(size <= i32::MAX as _);
-    VarInt(size as i32).serialize(to)?;
-    id.serialize(to)?;
-    packet.serialize(to)
+    VarInt(size as i32).serialize(&mut stream)?;
+    id.serialize(&mut stream)?;
+    packet.serialize(&mut stream)
 }
 
-pub fn receive_packet<T: ClientboundPacket>(from: &mut dyn Read) -> Result<T, DeserializeError> {
-    let mut size = VarInt::read(from)? as usize;
-    let read_id = VarInt::deserialize(from, &mut size)?;
+pub fn receive_packet<T: ClientboundPacket>(stream : &mut dyn ReadWrite) -> Result<T, DeserializeError> {
+    let size = VarInt::read(stream)? as usize;
+    let mut stream = DataStream::new(stream, size);
+    let read_id = VarInt::deserialize(&mut stream)?;
     assert_eq!(read_id.0, T::ID as i32);
-    T::deserialize(from, &mut size)
+    T::deserialize(&mut stream)
 }
 
 #[derive(Debug, Serialize)]

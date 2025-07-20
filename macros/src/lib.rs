@@ -80,7 +80,7 @@ pub fn serialize_derive(input: TokenStream) -> TokenStream {
             ));
 
             let size = quote_spanned! {span=> n += self.#ident.size();};
-            let serialize = quote_spanned! {span=> self.#ident.serialize(to)?;};
+            let serialize = quote_spanned! {span=> self.#ident.serialize(stream)?;};
 
             (size, serialize)
         })
@@ -102,7 +102,7 @@ pub fn serialize_derive(input: TokenStream) -> TokenStream {
             }
 
             #[allow(unused_variables)]
-            fn serialize(&self, to: &mut dyn std::io::Write) -> Result<(), crate::data::SerializeError> {
+            fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), crate::data::SerializeError> {
                 #(#field_codes_serialize)*
                 Ok(())
             }
@@ -147,7 +147,7 @@ pub fn deserialize_derive(input: TokenStream) -> TokenStream {
                 quote_spanned! {span=> crate::data::Deserialize},
             ));
 
-            quote_spanned! {span=> #ident: <#ty>::deserialize(from, remaining_size)?}
+            quote_spanned! {span=> #ident: <#ty>::deserialize(stream)?}
         })
         .collect::<Vec<_>>();
 
@@ -158,7 +158,7 @@ pub fn deserialize_derive(input: TokenStream) -> TokenStream {
 
         impl crate::data::Deserialize for #ident {
             #[allow(unused_variables)]
-            fn deserialize(from: &mut dyn std::io::Read, remaining_size: &mut usize) -> Result<Self, crate::data::DeserializeError> {
+            fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, crate::data::DeserializeError> {
                 Ok(Self {
                     #(#codes),*
                 })

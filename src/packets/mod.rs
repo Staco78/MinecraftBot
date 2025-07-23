@@ -9,18 +9,19 @@ use macros::{Deserialize, Serialize};
 use crate::{
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
     datatypes::{LengthInferredByteArray, VarInt},
+    nbt::Nbt,
 };
 
 pub trait ServerboundPacket: Serialize {
     const ID: u32;
 }
 
-pub trait ClientboundPacket: Deserialize  {
+pub trait ClientboundPacket: Deserialize {
     const ID: u32;
 }
 
 pub fn send_packet<T: ServerboundPacket>(
-    stream : &mut dyn ReadWrite,
+    stream: &mut dyn ReadWrite,
     packet: T,
 ) -> Result<(), SerializeError> {
     let mut stream = DataStream::new(stream, 0);
@@ -32,7 +33,9 @@ pub fn send_packet<T: ServerboundPacket>(
     packet.serialize(&mut stream)
 }
 
-pub fn receive_packet<T: ClientboundPacket>(stream : &mut dyn ReadWrite) -> Result<T, DeserializeError> {
+pub fn receive_packet<T: ClientboundPacket>(
+    stream: &mut dyn ReadWrite,
+) -> Result<T, DeserializeError> {
     let size = VarInt::read(stream)? as usize;
     let mut stream = DataStream::new(stream, size);
     let read_id = VarInt::deserialize(&mut stream)?;
@@ -121,6 +124,31 @@ pub struct KnownPack {
     version: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[sb_id = 3]
-pub struct AcknowledgeFinishConfiguration {}
+#[cb_id = 3]
+pub struct FinishConfiguration {}
+
+#[derive(Debug, Deserialize)]
+#[cb_id = 7]
+pub struct RegistryData {
+    registry_id: String,
+    entries: Vec<RegistryDataEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegistryDataEntry {
+    entry_id: String,
+    data: Option<Nbt>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cb_id = 0xD]
+pub struct UpdateTags {
+    tags_array: Vec<(String, Tags)>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct Tags {
+    tags: Vec<(String, Vec<VarInt>)>,
+}

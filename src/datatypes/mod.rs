@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 mod varint;
 
+use macros::{Deserialize, Serialize};
 pub use varint::*;
 
 use core::slice;
@@ -97,6 +100,11 @@ DeserializeNbr!(f32);
 SerializeNbr!(f64);
 DeserializeNbr!(f64);
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Angle {
+    inner: u8,
+}
+
 impl Serialize for String {
     fn size(&self) -> usize {
         let n = self.len();
@@ -140,7 +148,9 @@ impl Deserialize for String {
             read!(1);
             let width = utf8_char_width(buf[i]);
             if !(1..=3).contains(&width) {
-                return Err(DeserializeError::MalformedPacket("Invalid UTF-8".to_string()));
+                return Err(DeserializeError::MalformedPacket(
+                    "Invalid UTF-8".to_string(),
+                ));
             }
             read!(width - 1);
         }
@@ -203,7 +213,7 @@ impl<const N: usize, T: Deserialize> Deserialize for [T; N] {
         }
 
         // FIXME: replace with MaybeUninit::array_assume_init once stable
-        // Safety: each cell has been written stream
+        // Safety: each cell has been written
         let data: Self = unsafe { core::mem::transmute_copy(&data) };
 
         Ok(data)
@@ -266,13 +276,42 @@ impl<T: Deserialize> Deserialize for Option<T> {
 }
 
 #[derive(Debug)]
-pub struct LengthInferredByteArray(pub Box<[u8]>);
+pub struct LengthInferredArray<T>(pub Vec<T>);
+
+impl<T: Deserialize> Deserialize for LengthInferredArray<T> {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let mut data = Vec::new();
+
+        while stream.remaining_size() > 0 {
+            let val = T::deserialize(stream)?;
+            data.push(val);
+        }
+
+        Ok(Self(data))
+    }
+}
+
+impl<T: Serialize> Serialize for LengthInferredArray<T> {
+    fn size(&self) -> usize {
+        self.0.iter().map(Serialize::size).sum::<usize>()
+    }
+
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+        for val in &self.0 {
+            val.serialize(stream)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct LengthInferredByteArray(pub Vec<u8>);
 
 impl Deserialize for LengthInferredByteArray {
     fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         let mut buf = vec![0; stream.remaining_size()];
         stream.read_exact(&mut buf)?;
-        Ok(Self(buf.into_boxed_slice()))
+        Ok(Self(buf))
     }
 }
 
@@ -284,4 +323,229 @@ impl Serialize for LengthInferredByteArray {
     fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
         stream.write_all(&self.0)
     }
+}
+
+#[derive(Debug)]
+pub struct Position {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+impl Deserialize for Position {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let val = i64::deserialize(stream)?;
+
+        Ok(Self {
+            x: (val >> 38) as _,
+            y: ((val << 52) >> 52) as _,
+            z: ((val << 26) >> 38) as _,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum IdSet {
+    TagName(String),
+    Ids(Vec<VarInt>),
+}
+
+impl Deserialize for IdSet {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let type_ = VarInt::deserialize(stream)?.0;
+
+        if type_ < 0 {
+            return Err(DeserializeError::MalformedPacket(format!(
+                "ID Set: Negative type ({})",
+                type_
+            )));
+        }
+
+        if type_ == 0 {
+            let tag_name = String::deserialize(stream)?;
+            Ok(Self::TagName(tag_name))
+        } else {
+            // FIXME: replace by array::try_stream_fn once stable
+            let len = type_ - 1;
+
+            let mut data = vec![MaybeUninit::uninit(); len as usize];
+
+            for x in &mut data {
+                x.write(VarInt::deserialize(stream)?);
+            }
+
+            // Safety: each cell has been written
+            let data: Vec<VarInt> = unsafe { core::mem::transmute(data) };
+
+            Ok(Self::Ids(data))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum StructuredComponent {
+    // TODO
+}
+
+impl Deserialize for StructuredComponent {
+    fn deserialize(_stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        todo!()
+    }
+}
+
+#[derive(Debug)]
+pub enum Slot {
+    Empty,
+    NonEmpty {
+        count: VarInt,
+        id: VarInt,
+        components_to_add: Vec<StructuredComponent>,
+        components_to_remove: Vec<VarInt>,
+    },
+}
+
+impl Deserialize for Slot {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let count = VarInt::deserialize(stream)?;
+        if count.0 < 0 {
+            return Err(DeserializeError::MalformedPacket(format!(
+                "Slot: Negative item count ({})",
+                count.0
+            )));
+        }
+        if count.0 == 0 {
+            return Ok(Self::Empty);
+        }
+
+        let id = VarInt::deserialize(stream)?;
+        let components_to_add_count = VarInt::deserialize(stream)?;
+        let components_to_remove_count = VarInt::deserialize(stream)?;
+
+        if components_to_add_count.0 < 0 {
+            return Err(DeserializeError::MalformedPacket(format!(
+                "Slot: Negative components to add count ({})",
+                components_to_add_count.0
+            )));
+        }
+        if components_to_remove_count.0 < 0 {
+            return Err(DeserializeError::MalformedPacket(format!(
+                "Slot: Negative components to remove count ({})",
+                components_to_remove_count.0
+            )));
+        }
+
+        let components_to_add = (0..components_to_add_count.0 as usize)
+            .map(|_| StructuredComponent::deserialize(stream))
+            .collect::<Result<Vec<_>, _>>()?;
+        let components_to_remove = (0..components_to_remove_count.0 as usize)
+            .map(|_| VarInt::deserialize(stream))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self::NonEmpty {
+            count,
+            id,
+            components_to_add,
+            components_to_remove,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum SlotDisplay {
+    Empty,
+    AnyFuel,
+    Item {
+        item_type: VarInt,
+    },
+    ItemStack(Slot),
+    Tag(String),
+    SmithingTrim {
+        base: Box<SlotDisplay>,
+        material: Box<SlotDisplay>,
+        patter: Box<SlotDisplay>,
+    },
+    WithRemainder {
+        ingredient: Box<SlotDisplay>,
+        remainder: Box<SlotDisplay>,
+    },
+    Composite(Vec<SlotDisplay>),
+}
+
+impl Deserialize for SlotDisplay {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let type_ = VarInt::deserialize(stream)?;
+
+        let r = match type_.0 {
+            0 => Self::Empty,
+            1 => Self::AnyFuel,
+            2 => Self::Item {
+                item_type: VarInt::deserialize(stream)?,
+            },
+            3 => Self::ItemStack(Slot::deserialize(stream)?),
+            4 => Self::Tag(String::deserialize(stream)?),
+            5 => Self::SmithingTrim {
+                base: Box::new(SlotDisplay::deserialize(stream)?),
+                material: Box::new(SlotDisplay::deserialize(stream)?),
+                patter: Box::new(SlotDisplay::deserialize(stream)?),
+            },
+            6 => Self::WithRemainder {
+                ingredient: Box::new(SlotDisplay::deserialize(stream)?),
+                remainder: Box::new(SlotDisplay::deserialize(stream)?),
+            },
+            7 => Self::Composite(Vec::deserialize(stream)?),
+            o => {
+                return Err(DeserializeError::MalformedPacket(format!(
+                    "SlotDisplay: invalid type ({})",
+                    o
+                )));
+            }
+        };
+        Ok(r)
+    }
+}
+
+#[derive(Debug)]
+pub enum Or<X, Y> {
+    X(X),
+    Y(Y),
+}
+
+impl<X: Serialize, Y: Serialize> Or<X, Y> {
+    fn inner_serialize(&self) -> &dyn Serialize {
+        match self {
+            Self::X(x) => x,
+            Self::Y(y) => y,
+        }
+    }
+}
+
+impl<X: Deserialize, Y: Deserialize> Deserialize for Or<X, Y> {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let is_x = bool::deserialize(stream)?;
+        let r = if is_x {
+            Self::X(X::deserialize(stream)?)
+        } else {
+            Self::Y(Y::deserialize(stream)?)
+        };
+        Ok(r)
+    }
+}
+
+impl<X: Serialize, Y: Serialize> Serialize for Or<X, Y> {
+    fn size(&self) -> usize {
+        1 + self.inner_serialize().size()
+    }
+
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+        let is_x = matches!(self, Self::X(_));
+        is_x.serialize(stream)?;
+        self.inner_serialize().serialize(stream)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
 }

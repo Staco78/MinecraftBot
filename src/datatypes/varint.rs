@@ -5,7 +5,7 @@ use crate::data::{Deserialize, DeserializeError, Serialize};
 
 macro_rules! Var {
     ($SelfT: ident, $inner: ty, $max_len: literal) => {
-        #[derive(Debug)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         pub struct $SelfT(pub $inner);
 
         impl $SelfT {

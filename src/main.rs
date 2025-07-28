@@ -6,9 +6,7 @@ use crate::{
     data::ReadWrite,
     datatypes::VarInt,
     packets::{
-        ConnectionState, FeatureFlags, FinishConfiguration, Handshake, KnownPacks,
-        LoginAcknowledged, LoginStart, LoginSuccess, PacketReceiver, PluginMessage, RegistryData,
-        UpdateTags, send_packet,
+        send_packet, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent, FeatureFlags, FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged, LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities, PluginMessage, RegistryData, SetHeldItem, SynchronizePlayerPosition, UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint
     },
 };
 
@@ -73,6 +71,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     while receiver.get_state() != ConnectionState::Play {
         receiver.receive_packet(&mut stream)?;
     }
+
+    receiver.set_callback(|_packet: Login, _stream| Ok(None));
+    receiver.set_callback(|_packet: ChangeDifficulty, _| Ok(None));
+    receiver.set_callback(|_packet: PlayerAbilities, _| Ok(None));
+    receiver.set_callback(|_packet: SetHeldItem, _| Ok(None));
+    receiver.set_callback(|_packet: UpdateRecipes, _| Ok(None));
+    receiver.set_callback(|_packet: EntityEvent, _| Ok(None));
+    receiver.set_callback(|packet: SynchronizePlayerPosition, stream| {
+        send_packet(
+            stream,
+            ConfirmTeleportation {
+                teleport_id: packet.teleport_id,
+            },
+        )?;
+        Ok(None)
+    });
+    receiver.set_callback(|_packet: Waypoint, _| Ok(None));
+    receiver.set_callback(|_packet: UpdateEntityPosition, _| Ok(None));
+    receiver.set_callback(|_packet: UpdateEntityPositionRotation, _| Ok(None));
 
     loop {
         println!("{:?}", receiver.receive_packet(&mut stream));

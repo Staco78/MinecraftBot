@@ -12,7 +12,10 @@ use std::{
     ops::Deref,
 };
 
-use crate::data::{Deserialize, DeserializeError, Serialize, SerializeError};
+use crate::{
+    data::{Deserialize, DeserializeError, Serialize, SerializeError},
+    game::{IdSet, Slot, StructuredComponent, Vec3i},
+};
 
 impl Serialize for bool {
     fn size(&self) -> usize {
@@ -341,29 +344,19 @@ impl<T: Deserialize> Deserialize for Box<T> {
     }
 }
 
-#[derive(Debug)]
-pub struct Position {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
-}
+#[derive(Debug, Clone, Copy)]
+pub struct BlockPosition(pub Vec3i);
 
-impl Deserialize for Position {
+impl Deserialize for BlockPosition {
     fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         let val = i64::deserialize(stream)?;
 
-        Ok(Self {
+        Ok(Self(Vec3i {
             x: (val >> 38) as _,
             y: ((val << 52) >> 52) as _,
             z: ((val << 26) >> 38) as _,
-        })
+        }))
     }
-}
-
-#[derive(Debug)]
-pub enum IdSet {
-    TagName(String),
-    Ids(Vec<VarInt>),
 }
 
 impl Deserialize for IdSet {
@@ -398,26 +391,10 @@ impl Deserialize for IdSet {
     }
 }
 
-#[derive(Debug)]
-pub enum StructuredComponent {
-    // TODO
-}
-
 impl Deserialize for StructuredComponent {
     fn deserialize(_stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         todo!()
     }
-}
-
-#[derive(Debug)]
-pub enum Slot {
-    Empty,
-    NonEmpty {
-        count: VarInt,
-        id: VarInt,
-        components_to_add: Vec<StructuredComponent>,
-        components_to_remove: Vec<VarInt>,
-    },
 }
 
 impl Deserialize for Slot {
@@ -466,39 +443,9 @@ impl Deserialize for Slot {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[repr(u32)]
-#[enum_repr(VarInt)]
-pub enum SlotDisplay {
-    Empty = 0,
-    AnyFuel,
-    Item {
-        item_type: VarInt,
-    },
-    ItemStack(Slot),
-    Tag(String),
-    SmithingTrim {
-        base: Box<SlotDisplay>,
-        material: Box<SlotDisplay>,
-        patter: Box<SlotDisplay>,
-    },
-    WithRemainder {
-        ingredient: Box<SlotDisplay>,
-        remainder: Box<SlotDisplay>,
-    },
-    Composite(Vec<SlotDisplay>),
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[enum_repr(bool)]
 pub enum Or<X, Y> {
     Y(Y),
     X(X),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Color {
-    r: u8,
-    g: u8,
-    b: u8,
 }

@@ -9,7 +9,8 @@ use macros::{Deserialize, Serialize};
 use crate::{
     bitflags,
     data::{DataStream, Deserialize, ReadWrite, Serialize, SerializeError},
-    datatypes::{Angle, Color, IdSet, LengthInferredByteArray, Or, Position, SlotDisplay, VarInt},
+    datatypes::{Angle, LengthInferredByteArray, Or, VarInt},
+    game::{Color, EntityId, IdSet, Rotation, SlotDisplay, Vec3, Vec3d, Vec3i},
     nbt::Nbt,
 };
 
@@ -149,7 +150,7 @@ pub struct Tags(Vec<(String, Vec<VarInt>)>);
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2B]
 pub struct Login {
-    pub entity_id: i32,
+    pub entity_id: EntityId,
     pub is_hardcore: bool,
     pub dimension_names: Vec<String>,
     pub max_players: VarInt,
@@ -174,7 +175,7 @@ pub struct Login {
 #[derive(Debug, Deserialize)]
 pub struct DeathLocation {
     pub dimension_name: String,
-    pub location: Position,
+    pub location: Vec3i,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,7 +219,7 @@ pub struct UpdateRecipes {
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x1E]
 pub struct EntityEvent {
-    pub entity_id: i32,
+    pub id: EntityId,
     pub entity_status: i8,
 }
 
@@ -226,14 +227,9 @@ pub struct EntityEvent {
 #[cb_id = 0x41]
 pub struct SynchronizePlayerPosition {
     pub teleport_id: VarInt,
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub vx: f64,
-    pub vy: f64,
-    pub vz: f64,
-    pub yaw: f32,
-    pub pitch: f32,
+    pub position: Vec3d,
+    pub speed: Vec3d,
+    pub rotation: Rotation,
     pub flags: TeleportFlags,
 }
 
@@ -264,7 +260,7 @@ pub struct ConfirmTeleportation {
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x83]
 pub struct Waypoint {
-    pub operation: VarInt,
+    pub operation: WaypointOperation,
     pub identifier: Or<u128, String>,
     pub icon_style: String,
     pub color: Option<Color>,
@@ -273,9 +269,17 @@ pub struct Waypoint {
 
 #[derive(Debug, Deserialize)]
 #[enum_repr(VarInt)]
+pub enum WaypointOperation {
+    Track = 0,
+    Untrack = 1,
+    Update = 2,
+}
+
+#[derive(Debug, Deserialize)]
+#[enum_repr(VarInt)]
 pub enum WaypointData {
     Empty,
-    Vec3i { x: VarInt, y: VarInt, z: VarInt },
+    Vec3i(Vec3<VarInt>),
     Chunk { x: VarInt, z: VarInt },
     Azimuth(f32),
 }
@@ -283,21 +287,36 @@ pub enum WaypointData {
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2E]
 pub struct UpdateEntityPosition {
-    entity_id: VarInt,
-    dx: i16,
-    dy: i16,
-    dz: i16,
-    on_ground: bool,
+    pub entity_id: VarInt,
+    pub dx: i16,
+    pub dy: i16,
+    pub dz: i16,
+    pub on_ground: bool,
 }
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2F]
 pub struct UpdateEntityPositionRotation {
-    entity_id: VarInt,
-    dx: i16,
-    dy: i16,
-    dz: i16,
-    yaw: Angle,
-    pitch: Angle,
-    on_ground: bool,
+    pub entity_id: VarInt,
+    pub dx: i16,
+    pub dy: i16,
+    pub dz: i16,
+    pub yaw: Angle,
+    pub pitch: Angle,
+    pub on_ground: bool,
+}
+
+bitflags! {
+    #[derive(Debug)]
+    pub struct PlayerPosFlags: u8 {
+        const ON_GROUND = 1;
+        const PUSHING_WALL = 2;
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[sb_id = 0x1F]
+pub struct SetPlayerRotation {
+    pub rotation: Rotation,
+    pub flags: PlayerPosFlags,
 }

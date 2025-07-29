@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, SerializeError},
     datatypes::{LengthInferredByteArray, VarInt},
+    game::Game,
     packets::ClientboundPacket,
 };
 
@@ -45,10 +46,12 @@ pub struct PacketReceiver<'a> {
     state: ConnectionState,
     callbacks: HashMap<u32, RealCb<'a>>,
     _phantom: PhantomData<&'a ()>,
+    game: Game,
 }
 
-type RealCb<'a> =
-    Box<dyn FnMut(&mut DataStream) -> Result<Option<ConnectionState>, ReceiveError> + 'a>;
+type RealCb<'a> = Box<
+    dyn FnMut(&mut DataStream, &mut Game) -> Result<Option<ConnectionState>, ReceiveError> + 'a,
+>;
 
 impl<'a> PacketReceiver<'a> {
     pub fn new() -> Self {
@@ -56,6 +59,7 @@ impl<'a> PacketReceiver<'a> {
             state: ConnectionState::Handshaking,
             callbacks: HashMap::new(),
             _phantom: PhantomData,
+            game: Game::default(),
         }
     }
 
@@ -74,25 +78,32 @@ impl<'a> PacketReceiver<'a> {
 
     pub fn set_callback<T: ClientboundPacket + Debug>(
         &mut self,
-        mut cb: impl FnMut(T, &mut dyn ReadWrite) -> Result<Option<ConnectionState>, ReceiveError> + 'a,
+        mut cb: impl FnMut(
+            T,
+            &mut dyn ReadWrite,
+            &mut Game,
+        ) -> Result<Option<ConnectionState>, ReceiveError>
+        + 'a,
     ) {
-        let real_cb: RealCb = Box::new(move |stream: &mut crate::data::DataStream| {
-            let packet = match T::deserialize(stream) {
-                Ok(packet) => packet,
-                Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
-                Err(e) => {
-                    // Read the remaining bytes
-                    LengthInferredByteArray::deserialize(stream)?;
-                    return Err(e.into());
+        let real_cb: RealCb = Box::new(
+            move |stream: &mut crate::data::DataStream, game: &mut Game| {
+                let packet = match T::deserialize(stream) {
+                    Ok(packet) => packet,
+                    Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
+                    Err(e) => {
+                        // Read the remaining bytes
+                        LengthInferredByteArray::deserialize(stream)?;
+                        return Err(e.into());
+                    }
+                };
+                dbg!(&packet);
+                let r = cb(packet, stream, game)?;
+                if stream.remaining_size() > 0 {
+                    println!("WARN: Packet still has data to read");
                 }
-            };
-            dbg!(&packet);
-            let r = cb(packet, stream)?;
-            if stream.remaining_size() > 0 {
-                println!("WARN: Packet still has data to read");
-            }
-            Ok(r)
-        });
+                Ok(r)
+            },
+        );
 
         self.callbacks.insert(T::ID, real_cb);
     }
@@ -119,7 +130,7 @@ impl<'a> PacketReceiver<'a> {
     fn call_cb(&mut self, stream: &mut DataStream, id: u32) -> Result<(), ReceiveError> {
         match self.callbacks.get_mut(&id) {
             Some(cb) => {
-                let state = cb(stream)?;
+                let state = cb(stream, &mut self.game)?;
                 if let Some(new_state) = state {
                     self.change_state(new_state);
                 }

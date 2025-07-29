@@ -86,6 +86,12 @@ macro_rules! Var {
                 Ok(val)
             }
         }
+
+        impl From<$SelfT> for $inner {
+            fn from(val: $SelfT) -> Self {
+                val.0
+            }
+        }
     };
 }
 

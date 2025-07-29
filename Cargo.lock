@@ -46,6 +46,7 @@ dependencies = [
 name = "minecraft_client"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
  "macros",
  "thiserror",
 ]

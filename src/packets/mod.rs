@@ -7,6 +7,7 @@ pub use receive::*;
 use macros::{Deserialize, Serialize};
 
 use crate::{
+    bitflags,
     data::{DataStream, Deserialize, ReadWrite, Serialize, SerializeError},
     datatypes::{Angle, Color, IdSet, LengthInferredByteArray, Or, Position, SlotDisplay, VarInt},
     nbt::Nbt,
@@ -186,9 +187,19 @@ pub struct ChangeDifficulty {
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x39]
 pub struct PlayerAbilities {
-    pub flags: i8,
+    pub flags: PlayerAbilitiesFlags,
     pub flying_speed: f32,
     pub fov_modified: f32,
+}
+
+bitflags! {
+    #[derive(Debug)]
+    pub struct PlayerAbilitiesFlags: u8 {
+        const INVULNERABLE = 0x1;
+        const FLYING = 0x2;
+        const ALLOW_FLYING = 0x4;
+        const CREATIVE_MODE = 0x8;
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -223,7 +234,25 @@ pub struct SynchronizePlayerPosition {
     pub vz: f64,
     pub yaw: f32,
     pub pitch: f32,
-    pub flags: i32,
+    pub flags: TeleportFlags,
+}
+
+bitflags! {
+    #[derive(Debug)]
+    pub struct TeleportFlags: i32 {
+        const RX = 0b1;
+        const RY = 0b10;
+        const RZ = 0b100;
+
+        const RYAW = 0b1000;
+        const RPITCH = 0b10000;
+
+        const RVX = 0b100000;
+        const RVY = 0b1000000;
+        const RVZ = 0b10000000;
+
+        const ROTATE_BEFORE = 0x100;
+    }
 }
 
 #[derive(Debug, Serialize)]

@@ -48,7 +48,7 @@ pub struct PacketReceiver<'a> {
 }
 
 type RealCb<'a> =
-    Box<(dyn FnMut(&mut DataStream) -> Result<Option<ConnectionState>, ReceiveError> + 'a)>;
+    Box<dyn FnMut(&mut DataStream) -> Result<Option<ConnectionState>, ReceiveError> + 'a>;
 
 impl<'a> PacketReceiver<'a> {
     pub fn new() -> Self {

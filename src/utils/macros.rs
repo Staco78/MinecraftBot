@@ -71,3 +71,45 @@ impl EnumRepr for bool {
         self as Self::Inner
     }
 }
+
+#[macro_export]
+macro_rules! bitflags {
+    (
+        $(#[$outer:meta])*
+        $vis:vis struct $BitFlags:ident: $T:ty {
+            $(
+                $(#[$inner:ident $($args:tt)*])*
+                const $Flag:tt = $value:expr;
+            )*
+        }
+
+        $($t:tt)*
+    ) => {
+        bitflags::bitflags! {
+            $(#[$outer])*
+            $vis struct $BitFlags: $T {
+                $(
+                    $(#[$inner $($args)*])*
+                    const $Flag = $value;
+                )*
+            }
+        }
+
+        impl Serialize for $BitFlags {
+            fn size(&self) -> usize {
+                size_of::<$T>()
+            }
+
+            fn serialize(&self, stream: &mut $crate::data::DataStream) -> Result<(), $crate::data::SerializeError> {
+                self.bits().serialize(stream)
+            }
+        }
+
+        impl Deserialize for $BitFlags {
+            fn deserialize(stream: &mut $crate::data::DataStream) -> Result<Self, $crate::data::DeserializeError> {
+                let inner = <$T>::deserialize(stream)?;
+                Ok(Self::from_bits_retain(inner))
+            }
+        }
+    };
+}

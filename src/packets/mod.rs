@@ -7,7 +7,7 @@ pub use receive::*;
 use macros::{Deserialize, Serialize};
 
 use crate::{
-    data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
+    data::{DataStream, Deserialize, ReadWrite, Serialize, SerializeError},
     datatypes::{Angle, Color, IdSet, LengthInferredByteArray, Or, Position, SlotDisplay, VarInt},
     nbt::Nbt,
 };
@@ -31,16 +31,6 @@ pub fn send_packet<T: ServerboundPacket>(
     VarInt(size as i32).serialize(&mut stream)?;
     id.serialize(&mut stream)?;
     packet.serialize(&mut stream)
-}
-
-pub fn receive_packet<T: ClientboundPacket>(
-    stream: &mut dyn ReadWrite,
-) -> Result<T, DeserializeError> {
-    let size = VarInt::read(stream)? as usize;
-    let mut stream = DataStream::new(stream, size);
-    let read_id = VarInt::deserialize(&mut stream)?;
-    assert_eq!(read_id.0, T::ID as i32);
-    T::deserialize(&mut stream)
 }
 
 #[derive(Debug, Serialize)]
@@ -112,16 +102,12 @@ pub struct PluginMessage {
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x0C]
-pub struct FeatureFlags {
-    pub feature_flags: Vec<String>,
-}
+pub struct FeatureFlags(Vec<String>);
 
 #[derive(Debug, Serialize, Deserialize)]
 #[cb_id = 0x0E]
 #[sb_id = 7]
-pub struct KnownPacks {
-    pub known_packs: Vec<KnownPack>,
-}
+pub struct KnownPacks(Vec<KnownPack>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KnownPack {
@@ -155,9 +141,7 @@ pub struct UpdateTags {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Tags {
-    pub tags: Vec<(String, Vec<VarInt>)>,
-}
+pub struct Tags(Vec<(String, Vec<VarInt>)>);
 
 /// State Play
 
@@ -258,38 +242,13 @@ pub struct Waypoint {
     pub waypoint_data: WaypointData,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[enum_repr(VarInt)]
 pub enum WaypointData {
     Empty,
     Vec3i { x: VarInt, y: VarInt, z: VarInt },
     Chunk { x: VarInt, z: VarInt },
     Azimuth(f32),
-}
-
-impl Deserialize for WaypointData {
-    fn deserialize(stream: &mut DataStream) -> Result<Self, DeserializeError> {
-        let waypoint_type = VarInt::deserialize(stream)?.0;
-        let r = match waypoint_type {
-            0 => Self::Empty,
-            1 => Self::Vec3i {
-                x: VarInt::deserialize(stream)?,
-                y: VarInt::deserialize(stream)?,
-                z: VarInt::deserialize(stream)?,
-            },
-            2 => Self::Chunk {
-                x: VarInt::deserialize(stream)?,
-                z: VarInt::deserialize(stream)?,
-            },
-            3 => Self::Azimuth(f32::deserialize(stream)?),
-            other => {
-                return Err(DeserializeError::MalformedPacket(format!(
-                    "Unkonwn waypoint type {}",
-                    other
-                )));
-            }
-        };
-        Ok(r)
-    }
 }
 
 #[derive(Debug, Deserialize)]

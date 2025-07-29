@@ -6,7 +6,11 @@ use crate::{
     data::ReadWrite,
     datatypes::VarInt,
     packets::{
-        send_packet, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent, FeatureFlags, FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged, LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities, PluginMessage, RegistryData, SetHeldItem, SynchronizePlayerPosition, UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint
+        ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent, FeatureFlags,
+        FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged, LoginStart,
+        LoginSuccess, PacketReceiver, PlayerAbilities, PluginMessage, RegistryData, SetHeldItem,
+        SynchronizePlayerPosition, UpdateEntityPosition, UpdateEntityPositionRotation,
+        UpdateRecipes, UpdateTags, Waypoint, send_packet,
     },
 };
 
@@ -14,6 +18,7 @@ mod data;
 mod datatypes;
 mod nbt;
 mod packets;
+mod utils;
 
 const PROTOCOL_VERSION: i32 = 772;
 

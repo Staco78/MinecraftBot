@@ -9,6 +9,7 @@ use core::slice;
 use std::{
     io::{Read, Write},
     mem::MaybeUninit,
+    ops::Deref,
 };
 
 use crate::data::{Deserialize, DeserializeError, Serialize, SerializeError};
@@ -101,9 +102,7 @@ SerializeNbr!(f64);
 DeserializeNbr!(f64);
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Angle {
-    inner: u8,
-}
+pub struct Angle(u8);
 
 impl Serialize for String {
     fn size(&self) -> usize {
@@ -325,6 +324,23 @@ impl Serialize for LengthInferredByteArray {
     }
 }
 
+impl<T: Serialize> Serialize for Box<T> {
+    fn size(&self) -> usize {
+        self.deref().size()
+    }
+
+    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+        self.deref().serialize(stream)
+    }
+}
+
+impl<T: Deserialize> Deserialize for Box<T> {
+    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
+        let inner = T::deserialize(stream)?;
+        Ok(Box::new(inner))
+    }
+}
+
 #[derive(Debug)]
 pub struct Position {
     pub x: i32,
@@ -450,9 +466,11 @@ impl Deserialize for Slot {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[repr(u32)]
+#[enum_repr(VarInt)]
 pub enum SlotDisplay {
-    Empty,
+    Empty = 0,
     AnyFuel,
     Item {
         item_type: VarInt,
@@ -471,76 +489,11 @@ pub enum SlotDisplay {
     Composite(Vec<SlotDisplay>),
 }
 
-impl Deserialize for SlotDisplay {
-    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
-        let type_ = VarInt::deserialize(stream)?;
-
-        let r = match type_.0 {
-            0 => Self::Empty,
-            1 => Self::AnyFuel,
-            2 => Self::Item {
-                item_type: VarInt::deserialize(stream)?,
-            },
-            3 => Self::ItemStack(Slot::deserialize(stream)?),
-            4 => Self::Tag(String::deserialize(stream)?),
-            5 => Self::SmithingTrim {
-                base: Box::new(SlotDisplay::deserialize(stream)?),
-                material: Box::new(SlotDisplay::deserialize(stream)?),
-                patter: Box::new(SlotDisplay::deserialize(stream)?),
-            },
-            6 => Self::WithRemainder {
-                ingredient: Box::new(SlotDisplay::deserialize(stream)?),
-                remainder: Box::new(SlotDisplay::deserialize(stream)?),
-            },
-            7 => Self::Composite(Vec::deserialize(stream)?),
-            o => {
-                return Err(DeserializeError::MalformedPacket(format!(
-                    "SlotDisplay: invalid type ({})",
-                    o
-                )));
-            }
-        };
-        Ok(r)
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+#[enum_repr(bool)]
 pub enum Or<X, Y> {
-    X(X),
     Y(Y),
-}
-
-impl<X: Serialize, Y: Serialize> Or<X, Y> {
-    fn inner_serialize(&self) -> &dyn Serialize {
-        match self {
-            Self::X(x) => x,
-            Self::Y(y) => y,
-        }
-    }
-}
-
-impl<X: Deserialize, Y: Deserialize> Deserialize for Or<X, Y> {
-    fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
-        let is_x = bool::deserialize(stream)?;
-        let r = if is_x {
-            Self::X(X::deserialize(stream)?)
-        } else {
-            Self::Y(Y::deserialize(stream)?)
-        };
-        Ok(r)
-    }
-}
-
-impl<X: Serialize, Y: Serialize> Serialize for Or<X, Y> {
-    fn size(&self) -> usize {
-        1 + self.inner_serialize().size()
-    }
-
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
-        let is_x = matches!(self, Self::X(_));
-        is_x.serialize(stream)?;
-        self.inner_serialize().serialize(stream)
-    }
+    X(X),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -11,12 +11,12 @@ pub struct DataStream<'a> {
 }
 
 impl<'a> DataStream<'a> {
-        pub fn new(inner: &'a mut dyn ReadWrite, packet_size: usize) -> Self {
-            Self {
-                inner,
-                remaining_size: packet_size,
-            }
+    pub fn new(inner: &'a mut dyn ReadWrite, packet_size: usize) -> Self {
+        Self {
+            inner,
+            remaining_size: packet_size,
         }
+    }
 
     pub fn remaining_size(&self) -> usize {
         self.remaining_size

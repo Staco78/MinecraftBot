@@ -111,6 +111,7 @@ impl<'a> PacketReceiver<'a> {
         let mut stream = DataStream::new(stream, size);
 
         let id = VarInt::deserialize(&mut stream)?.0;
+        dbg!(id);
         assert!(id >= 0);
         self.call_cb(&mut stream, id as u32)
     }

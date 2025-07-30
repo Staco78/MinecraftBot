@@ -432,3 +432,18 @@ pub struct AddEntity {
     pub vy: i16,
     pub vz: i16,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[cb_id = 0x26]
+#[sb_id = 0x1B]
+pub struct KeepAlive(pub i64);
+
+#[derive(Debug, Deserialize)]
+#[cb_id = 0x1F]
+pub struct TeleportEntity {
+    pub entity_id: VarInt,
+    pub pos: Vec3d,
+    pub speed: Vec3d,
+    pub rotation: Rotation,
+    pub on_ground: bool,
+}

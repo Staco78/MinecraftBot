@@ -13,12 +13,9 @@ pub type EntityRef = Rc<RefCell<Entity>>;
 
 impl Entities {
     /// Add a new entity.
-    ///
-    /// Panic if an entity with this `id` already exists
     pub fn add(&mut self, id: EntityId, entity: Entity) -> EntityRef {
         let ptr = Rc::new(RefCell::new(entity));
-        let r = self.0.insert(id, Rc::clone(&ptr));
-        assert!(r.is_none());
+        self.0.insert(id, Rc::clone(&ptr));
         ptr
     }
 

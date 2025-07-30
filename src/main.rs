@@ -8,16 +8,17 @@ use std::{
 };
 
 use crate::{
-    data::{DeserializeError, ReadWrite},
+    data::{DeserializeError, ReadWrite, SerializeError},
     datatypes::VarInt,
     game::{Entity, EntityId, EntityRef, Game, GameError, Rotation, Vec3d},
     packets::{
         AddEntity, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent,
-        FeatureFlags, FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged,
-        LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities, PlayerPosFlags,
-        PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData, SetHeldItem,
-        SetPlayerRotation, SynchronizePlayerPosition, TeleportFlags, UpdateEntityPosition,
-        UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint, send_packet,
+        FeatureFlags, FinishConfiguration, Handshake, KeepAlive, KnownPacks, Login,
+        LoginAcknowledged, LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities,
+        PlayerPosFlags, PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData, SetHeldItem,
+        SetPlayerRotation, SynchronizePlayerPosition, TeleportEntity, TeleportFlags,
+        UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
+        send_packet,
     },
 };
 
@@ -95,6 +96,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         receiver.receive_packet(&mut stream)?;
     }
 
+    receiver.set_callback(|packet: KeepAlive, stream, _| {
+        send_packet(stream, packet)?;
+        Ok(None)
+    });
+
     receiver.set_callback(|packet: Login, _stream, game| {
         let entity = game.player.entity.take();
         let entity_ref = game.entities.add(packet.entity_id, entity);
@@ -147,17 +153,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     receiver.set_callback(|_packet: Waypoint, _, _| Ok(None));
     receiver.set_callback(|packet: UpdateEntityPosition, stream, game| {
         let entity_id = packet.entity_id.into();
-        update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, stream, game)?;
+        let entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, game)?;
+        entity_moved(&entity, stream, game)?;
 
         Ok(None)
     });
     receiver.set_callback(|packet: UpdateEntityPositionRotation, stream, game| {
         let entity_id = packet.entity_id.into();
 
-        let mut entity =
-            update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, stream, game)?;
+        let mut entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, game)?;
+        entity_moved(&entity, stream, game)?;
 
         entity.rotation = Rotation::from_angles(packet.yaw, packet.pitch);
+
+        Ok(None)
+    });
+
+    receiver.set_callback(|packet: TeleportEntity, stream, game| {
+        let id = packet.entity_id.into();
+        let mut entity = game
+            .entities
+            .get_mut(id)
+            .ok_or::<ReceiveError>(GameError::UnkonwnEntity(id).into())?;
+
+        entity.position = packet.pos;
+        entity.speed = packet.speed;
+        entity.rotation = packet.rotation;
+
+        entity_moved(&entity, stream, game)?;
 
         Ok(None)
     });
@@ -196,8 +219,7 @@ fn update_entity_pos<'a>(
     dx: i16,
     dy: i16,
     dz: i16,
-    stream: &mut dyn ReadWrite,
-    game: &'a mut Game,
+    game: &'a Game,
 ) -> Result<RefMut<'a, Entity>, ReceiveError> {
     let mut entity = game
         .entities
@@ -210,6 +232,14 @@ fn update_entity_pos<'a>(
     };
     entity.position += dpos;
 
+    Ok(entity)
+}
+
+fn entity_moved(
+    entity: &Entity,
+    stream: &mut dyn ReadWrite,
+    game: &Game,
+) -> Result<(), SerializeError> {
     if entity.entity_type == 149 {
         let pos_diff = entity.position - game.player.entity.borrow().position;
         let mut yaw = -f64::atan2(pos_diff.x, pos_diff.z).to_degrees() as f32;
@@ -234,6 +264,5 @@ fn update_entity_pos<'a>(
             },
         )?;
     }
-
-    Ok(entity)
+    Ok(())
 }

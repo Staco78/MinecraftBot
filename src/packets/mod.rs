@@ -8,7 +8,7 @@ use macros::{Deserialize, Serialize};
 
 use crate::{
     bitflags,
-    data::{DataStream, Deserialize, ReadWrite, Serialize, SerializeError},
+    data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
     datatypes::{Angle, LengthInferredByteArray, Or, VarInt},
     game::{Color, EntityId, IdSet, Rotation, SlotDisplay, Vec3, Vec3d, Vec3i},
     nbt::Nbt,
@@ -78,11 +78,11 @@ pub struct LoginStart {
 pub struct LoginSuccess {
     pub uuid: u128,
     pub username: String,
-    pub property: Vec<LoginSuccessProperty>,
+    pub property: Vec<PlayerProperty>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct LoginSuccessProperty {
+pub struct PlayerProperty {
     pub name: String,
     pub value: String,
     pub signature: Option<String>,
@@ -319,4 +319,116 @@ bitflags! {
 pub struct SetPlayerRotation {
     pub rotation: Rotation,
     pub flags: PlayerPosFlags,
+}
+
+#[derive(Debug)]
+pub struct PlayersInfoUpdate {
+    pub players: Vec<(u128, Vec<PlayerAction>)>,
+}
+
+impl ClientboundPacket for PlayersInfoUpdate {
+    const ID: u32 = 0x3F;
+}
+
+impl Deserialize for PlayersInfoUpdate {
+    fn deserialize(stream: &mut DataStream) -> Result<Self, DeserializeError> {
+        let actions = PlayerActionFlag::deserialize(stream)?;
+        let players_count = VarInt::deserialize(stream)?.0 as usize;
+
+        let players = (0..players_count)
+            .map(|_| {
+                let uuid = u128::deserialize(stream)?;
+                let player_actions = actions
+                    .iter()
+                    .map(|action| {
+                        let r = match action {
+                            PlayerActionFlag::ADD_PLAYER => PlayerAction::AddPlayer {
+                                name: String::deserialize(stream)?,
+                                properties: Vec::deserialize(stream)?,
+                            },
+                            PlayerActionFlag::INITIALIZE_CHAT => {
+                                PlayerAction::InitializeChat(Option::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_GAME_MODE => {
+                                PlayerAction::UpdateGameMode(VarInt::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_LISTED => {
+                                PlayerAction::UpdateListed(bool::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_LATENCY => {
+                                PlayerAction::UpdateLatency(VarInt::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_DISPLAY_NAME => {
+                                PlayerAction::UpdateDisplayName(Option::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_LIST_PRIORITY => {
+                                PlayerAction::UpdateListPriority(VarInt::deserialize(stream)?)
+                            }
+                            PlayerActionFlag::UPDATE_HAT => {
+                                PlayerAction::UpdateHat(bool::deserialize(stream)?)
+                            }
+                            _ => unimplemented!(),
+                        };
+                        Ok(r)
+                    })
+                    .collect::<Result<Vec<_>, DeserializeError>>()?;
+                Ok((uuid, player_actions))
+            })
+            .collect::<Result<Vec<_>, DeserializeError>>()?;
+
+        Ok(PlayersInfoUpdate { players })
+    }
+}
+
+bitflags! {
+    #[derive(Debug, PartialEq)]
+    pub struct PlayerActionFlag: u8 {
+        const ADD_PLAYER = 1;
+        const INITIALIZE_CHAT = 2;
+        const UPDATE_GAME_MODE = 4;
+        const UPDATE_LISTED = 8;
+        const UPDATE_LATENCY = 16;
+        const UPDATE_DISPLAY_NAME = 32;
+        const UPDATE_LIST_PRIORITY = 64;
+        const UPDATE_HAT = 128;
+    }
+}
+
+#[derive(Debug)]
+pub enum PlayerAction {
+    AddPlayer {
+        name: String,
+        properties: Vec<PlayerProperty>,
+    },
+    InitializeChat(Option<InitializeChatData>),
+    UpdateGameMode(VarInt),
+    UpdateListed(bool),
+    UpdateLatency(VarInt),
+    UpdateDisplayName(Option<String>),
+    UpdateListPriority(VarInt),
+    UpdateHat(bool),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InitializeChatData {
+    pub uuid: u128,
+    pub key_expiry_time: i64,
+    pub public_key: Vec<u8>,
+    pub key_signature: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+#[cb_id = 0x1]
+pub struct AddEntity {
+    pub entity_id: VarInt,
+    pub uuid: u128,
+    pub entity_type: VarInt,
+    pub pos: Vec3d,
+    pub pitch: Angle,
+    pub yaw: Angle,
+    pub head_yaw: Angle,
+    pub data: VarInt,
+    pub vx: i16,
+    pub vy: i16,
+    pub vz: i16,
 }

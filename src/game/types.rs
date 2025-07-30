@@ -1,8 +1,8 @@
-use std::ops::{Add, Neg, Sub};
+use std::ops::{Add, AddAssign, Neg, Sub};
 
 use macros::{Deserialize, Serialize};
 
-use crate::datatypes::VarInt;
+use crate::datatypes::{Angle, VarInt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub struct Vec3<T> {
@@ -59,6 +59,14 @@ impl<T: Add<Output = T>> Add for Vec3<T> {
     }
 }
 
+impl<T: AddAssign> AddAssign for Vec3<T> {
+    fn add_assign(&mut self, rhs: Self) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
+}
+
 impl<T: Sub<Output = T>> Sub for Vec3<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
@@ -81,10 +89,29 @@ impl<T: Neg<Output = T>> Neg for Vec3<T> {
     }
 }
 
+impl Vec3d {
+    pub fn speed_from_entity_velocity(vx: i16, vy: i16, vz: i16) -> Self {
+        Self {
+            x: vx as f64 / 400.,
+            y: vy as f64 / 400.,
+            z: vz as f64 / 400.,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Default)]
 pub struct Rotation {
     pub yaw: f32,
     pub pitch: f32,
+}
+
+impl Rotation {
+    pub fn from_angles(yaw: Angle, pitch: Angle) -> Self {
+        Self {
+            yaw: yaw.into(),
+            pitch: pitch.into(),
+        }
+    }
 }
 
 #[allow(dead_code)]

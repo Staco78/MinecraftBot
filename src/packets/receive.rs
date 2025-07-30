@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, SerializeError},
     datatypes::{LengthInferredByteArray, VarInt},
-    game::Game,
+    game::{Game, GameError},
     packets::ClientboundPacket,
 };
 
@@ -39,6 +39,9 @@ pub enum ReceiveError {
 
     #[error("Error while deserializing: {0}")]
     DeserializeError(#[from] DeserializeError),
+
+    #[error("Game error: {0}")]
+    GameError(#[from] GameError)
 }
 
 // #[derive(Debug)]
@@ -100,6 +103,7 @@ impl<'a> PacketReceiver<'a> {
                 let r = cb(packet, stream, game)?;
                 if stream.remaining_size() > 0 {
                     println!("WARN: Packet still has data to read");
+                    println!("data: {:?}", LengthInferredByteArray::deserialize(stream)?.0);
                 }
                 Ok(r)
             },

@@ -107,6 +107,13 @@ DeserializeNbr!(f64);
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Angle(u8);
 
+impl From<Angle> for f32 {
+    /// Convert to degree
+    fn from(value: Angle) -> Self {
+        value.0 as f32 * (360. / 256.)
+    }
+}
+
 impl Serialize for String {
     fn size(&self) -> usize {
         let n = self.len();

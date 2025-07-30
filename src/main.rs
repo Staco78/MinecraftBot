@@ -1,18 +1,23 @@
 #![allow(clippy::uninlined_format_args)]
 
-use std::{error::Error, net::TcpStream, process::exit};
+use std::{
+    cell::{RefCell, RefMut},
+    error::Error,
+    net::TcpStream,
+    process::exit,
+};
 
 use crate::{
     data::{DeserializeError, ReadWrite},
     datatypes::VarInt,
-    game::{Rotation, Vec3d, Vec3i},
+    game::{Entity, EntityId, EntityRef, Game, GameError, Rotation, Vec3d},
     packets::{
-        ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent, FeatureFlags,
-        FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged, LoginStart,
-        LoginSuccess, PacketReceiver, PlayerAbilities, PlayerPosFlags, PluginMessage, ReceiveError,
-        RegistryData, SetHeldItem, SetPlayerRotation, SynchronizePlayerPosition, TeleportFlags,
-        UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
-        WaypointData, send_packet,
+        AddEntity, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent,
+        FeatureFlags, FinishConfiguration, Handshake, KnownPacks, Login, LoginAcknowledged,
+        LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities, PlayerPosFlags,
+        PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData, SetHeldItem,
+        SetPlayerRotation, SynchronizePlayerPosition, TeleportFlags, UpdateEntityPosition,
+        UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint, send_packet,
     },
 };
 
@@ -50,7 +55,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     receiver.set_callback(|packet: LoginSuccess, stream: &mut dyn ReadWrite, game| {
-        game.player.uuid = packet.uuid;
+        let player_entity = Entity {
+            uuid: packet.uuid,
+            ..Default::default()
+        };
+
+        game.player.entity = EntityRef::new(RefCell::new(player_entity)); // placeholder entity without id
         game.player.name = packet.username;
 
         send_packet(stream, LoginAcknowledged {})?;
@@ -86,7 +96,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     receiver.set_callback(|packet: Login, _stream, game| {
-        game.player.entity.id = packet.entity_id;
+        let entity = game.player.entity.take();
+        let entity_ref = game.entities.add(packet.entity_id, entity);
+        game.player.entity = entity_ref;
 
         Ok(None)
     });
@@ -99,10 +111,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         macro_rules! synchronize_axis {
             ($($field:ident).*, $flag: ident) => {
                 if packet.flags.contains(TeleportFlags:: $flag) {
-                    game.player.entity.$($field).* += packet.$($field).*;
+                    game.player.entity.borrow_mut().$($field).* += packet.$($field).*;
                 }
                 else {
-                    game.player.entity.$($field).* = packet.$($field).*;
+                    game.player.entity.borrow_mut().$($field).* = packet.$($field).*;
                 }
             };
         }
@@ -132,36 +144,40 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?;
         Ok(None)
     });
-    receiver.set_callback(|packet: Waypoint, stream, game| {
-        if let WaypointData::Vec3i(pos) = packet.waypoint_data {
-            let pos_diff = Vec3d::middle_of(Vec3i::from(pos)) - game.player.entity.position;
-            let mut yaw = -f64::atan2(pos_diff.x, pos_diff.z).to_degrees() as f32;
-            if yaw < 0. {
-                yaw += 360.;
-            }
-            let dist = Vec3d {
-                x: pos_diff.x,
-                y: 0.,
-                z: pos_diff.z,
-            }
-            .length();
-            let pitch = -f64::atan(pos_diff.y / dist).to_degrees() as f32;
-
-            dbg!(yaw, pitch);
-
-            send_packet(
-                stream,
-                SetPlayerRotation {
-                    rotation: Rotation { yaw, pitch },
-                    flags: PlayerPosFlags::empty(),
-                },
-            )?;
-        }
+    receiver.set_callback(|_packet: Waypoint, _, _| Ok(None));
+    receiver.set_callback(|packet: UpdateEntityPosition, stream, game| {
+        let entity_id = packet.entity_id.into();
+        update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, stream, game)?;
 
         Ok(None)
     });
-    receiver.set_callback(|_packet: UpdateEntityPosition, _, _game| Ok(None));
-    receiver.set_callback(|_packet: UpdateEntityPositionRotation, _, _game| Ok(None));
+    receiver.set_callback(|packet: UpdateEntityPositionRotation, stream, game| {
+        let entity_id = packet.entity_id.into();
+
+        let mut entity =
+            update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, stream, game)?;
+
+        entity.rotation = Rotation::from_angles(packet.yaw, packet.pitch);
+
+        Ok(None)
+    });
+
+    receiver.set_callback(|_packet: PlayersInfoUpdate, _, _| Ok(None));
+
+    receiver.set_callback(|packet: AddEntity, _, game| {
+        let entity = Entity {
+            uuid: packet.uuid,
+            position: packet.pos,
+            rotation: Rotation::from_angles(packet.yaw, packet.pitch),
+            speed: Vec3d::speed_from_entity_velocity(packet.vx, packet.vy, packet.vz),
+            entity_type: packet.entity_type.into(),
+        };
+        game.entities.add(packet.entity_id.into(), entity);
+
+        dbg!(&game.entities);
+
+        Ok(None)
+    });
 
     loop {
         let r = receiver.receive_packet(&mut stream);
@@ -173,4 +189,51 @@ fn main() -> Result<(), Box<dyn Error>> {
             e => println!("{:?}", e),
         }
     }
+}
+
+fn update_entity_pos<'a>(
+    id: EntityId,
+    dx: i16,
+    dy: i16,
+    dz: i16,
+    stream: &mut dyn ReadWrite,
+    game: &'a mut Game,
+) -> Result<RefMut<'a, Entity>, ReceiveError> {
+    let mut entity = game
+        .entities
+        .get_mut(id)
+        .ok_or::<ReceiveError>(GameError::UnkonwnEntity(id).into())?;
+    let dpos = Vec3d {
+        x: dx as f64 / 4096.,
+        y: dy as f64 / 4096.,
+        z: dz as f64 / 4096.,
+    };
+    entity.position += dpos;
+
+    if entity.entity_type == 149 {
+        let pos_diff = entity.position - game.player.entity.borrow().position;
+        let mut yaw = -f64::atan2(pos_diff.x, pos_diff.z).to_degrees() as f32;
+        if yaw < 0. {
+            yaw += 360.;
+        }
+        let dist = Vec3d {
+            x: pos_diff.x,
+            y: 0.,
+            z: pos_diff.z,
+        }
+        .length();
+        let pitch = -f64::atan(pos_diff.y / dist).to_degrees() as f32;
+
+        dbg!(yaw, pitch);
+
+        send_packet(
+            stream,
+            SetPlayerRotation {
+                rotation: Rotation { yaw, pitch },
+                flags: PlayerPosFlags::empty(),
+            },
+        )?;
+    }
+
+    Ok(entity)
 }

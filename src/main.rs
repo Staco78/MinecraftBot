@@ -15,10 +15,10 @@ use crate::{
         AddEntity, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent,
         FeatureFlags, FinishConfiguration, Handshake, KeepAlive, KnownPacks, Login,
         LoginAcknowledged, LoginStart, LoginSuccess, PacketReceiver, PlayerAbilities,
-        PlayerPosFlags, PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData, SetHeldItem,
-        SetPlayerRotation, SynchronizePlayerPosition, TeleportEntity, TeleportFlags,
-        UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
-        send_packet,
+        PlayerPosFlags, PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData,
+        SetEntityVelocity, SetHeldItem, SetPlayerRotation, SynchronizePlayerPosition,
+        TeleportEntity, TeleportFlags, UpdateEntityPosition, UpdateEntityPositionRotation,
+        UpdateRecipes, UpdateTags, Waypoint, send_packet,
     },
 };
 
@@ -174,13 +174,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         let mut entity = game
             .entities
             .get_mut(id)
-            .ok_or::<ReceiveError>(GameError::UnkonwnEntity(id).into())?;
+            .ok_or(GameError::UnkonwnEntity(id))?;
 
         entity.position = packet.pos;
         entity.speed = packet.speed;
         entity.rotation = packet.rotation;
 
         entity_moved(&entity, stream, game)?;
+
+        Ok(None)
+    });
+
+    receiver.set_callback(|packet: SetEntityVelocity, _, game| {
+        let id = packet.entity_id.into();
+        let mut entity = game
+            .entities
+            .get_mut(id)
+            .ok_or(GameError::UnkonwnEntity(id))?;
+
+        entity.speed = Vec3d::speed_from_entity_velocity(packet.vx, packet.vy, packet.vz);
 
         Ok(None)
     });
@@ -224,7 +236,7 @@ fn update_entity_pos<'a>(
     let mut entity = game
         .entities
         .get_mut(id)
-        .ok_or::<ReceiveError>(GameError::UnkonwnEntity(id).into())?;
+        .ok_or(GameError::UnkonwnEntity(id))?;
     let dpos = Vec3d {
         x: dx as f64 / 4096.,
         y: dy as f64 / 4096.,
@@ -253,8 +265,6 @@ fn entity_moved(
         }
         .length();
         let pitch = -f64::atan(pos_diff.y / dist).to_degrees() as f32;
-
-        dbg!(yaw, pitch);
 
         send_packet(
             stream,

@@ -447,3 +447,12 @@ pub struct TeleportEntity {
     pub rotation: Rotation,
     pub on_ground: bool,
 }
+
+#[derive(Debug, Deserialize)]
+#[cb_id = 0x5E]
+pub struct SetEntityVelocity {
+    pub entity_id: VarInt,
+    pub vx: i16,
+    pub vy: i16,
+    pub vz: i16
+}

@@ -99,7 +99,7 @@ impl<'a> PacketReceiver<'a> {
                         return Err(e.into());
                     }
                 };
-                dbg!(&packet);
+                // dbg!(&packet);
                 let r = cb(packet, stream, game)?;
                 if stream.remaining_size() > 0 {
                     println!("WARN: Packet still has data to read");

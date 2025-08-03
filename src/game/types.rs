@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, Neg, Sub};
 
 use macros::{Deserialize, Serialize};
 
@@ -18,15 +18,6 @@ impl Vec3d {
     pub fn length(&self) -> f64 {
         let Vec3d { x, y, z } = self;
         (x * x + y * y + z * z).sqrt()
-    }
-
-    pub fn middle_of(block: Vec3i) -> Self {
-        Self::from(block)
-            + Vec3d {
-                x: 0.5,
-                y: 0.,
-                z: 0.5,
-            }
     }
 }
 
@@ -85,6 +76,18 @@ impl<T: Neg<Output = T>> Neg for Vec3<T> {
             x: -self.x,
             y: -self.y,
             z: -self.z,
+        }
+    }
+}
+
+impl<T: Mul<Output = T> + Copy> Mul<T> for Vec3<T> {
+    type Output = Vec3<T>;
+
+    fn mul(self, rhs: T) -> Self::Output {
+        Self {
+            x: rhs * self.x,
+            y: rhs * self.y,
+            z: rhs * self.z,
         }
     }
 }

@@ -1,33 +1,35 @@
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    collections::HashMap,
-    rc::Rc,
-};
+use std::{collections::HashMap, sync::Arc};
+
+use parking_lot::{ArcRwLockReadGuard, ArcRwLockWriteGuard, RwLock};
 
 use crate::game::{Entity, EntityId};
 
-#[derive(Debug, Default)]
-pub struct Entities(HashMap<EntityId, EntityRef>);
+pub type ReadGuard = ArcRwLockReadGuard<parking_lot::RawRwLock, Entity>;
+pub type WriteGuard = ArcRwLockWriteGuard<parking_lot::RawRwLock, Entity>;
 
-pub type EntityRef = Rc<RefCell<Entity>>;
+#[derive(Debug, Default)]
+pub struct Entities(RwLock<HashMap<EntityId, EntityRef>>);
+
+pub type EntityRef = Arc<RwLock<Entity>>;
 
 impl Entities {
-    /// Add a new entity.
-    pub fn add(&mut self, id: EntityId, entity: Entity) -> EntityRef {
-        let ptr = Rc::new(RefCell::new(entity));
-        self.0.insert(id, Rc::clone(&ptr));
+    pub fn add(&self, id: EntityId, entity: Entity) -> EntityRef {
+        let ptr = Arc::new(RwLock::new(entity));
+        self.0.write().insert(id, Arc::clone(&ptr));
         ptr
     }
 
-    pub fn get(&self, id: EntityId) -> Option<Ref<Entity>> {
-        self.0.get(&id).map(|r| r.borrow())
+    #[allow(dead_code)]
+    pub fn get(&self, id: EntityId) -> Option<ReadGuard> {
+        self.take(id).map(|ptr| ptr.read_arc())
     }
 
-    pub fn get_mut(&self, id: EntityId) -> Option<RefMut<Entity>> {
-        self.0.get(&id).map(|r| r.borrow_mut())
+    pub fn get_mut(&self, id: EntityId) -> Option<WriteGuard> {
+        self.take(id).map(|ptr| ptr.write_arc())
     }
 
     pub fn take(&self, id: EntityId) -> Option<EntityRef> {
-        self.0.get(&id).cloned()
+        let map = self.0.read();
+        map.get(&id).cloned()
     }
 }

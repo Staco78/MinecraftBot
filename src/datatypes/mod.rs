@@ -22,7 +22,7 @@ impl Serialize for bool {
         1
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         match *self {
             true => stream.write_all(&[1]),
             false => stream.write_all(&[0]),
@@ -54,7 +54,7 @@ macro_rules! SerializeNbr {
 
             fn serialize(
                 &self,
-                stream: &mut crate::data::DataStream,
+                stream: &mut dyn Write,
             ) -> Result<(), $crate::data::SerializeError> {
                 stream.write_all(&self.to_be_bytes())
             }
@@ -121,7 +121,7 @@ impl Serialize for String {
         VarInt(n as i32).size() + self.len()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         let n = self.chars().count();
         assert!(n <= i32::MAX as usize);
         VarInt(n as i32).serialize(stream)?;
@@ -203,7 +203,7 @@ impl<const N: usize, T: Serialize> Serialize for [T; N] {
         self.iter().map(Serialize::size).sum()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         for x in self {
             x.serialize(stream)?;
         }
@@ -235,7 +235,7 @@ impl<T: Serialize> Serialize for Vec<T> {
         VarInt(self.len() as i32).size() + self.iter().map(Serialize::size).sum::<usize>()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         assert!(self.len() <= i32::MAX as _);
         VarInt(self.len() as i32).serialize(stream)?;
         for x in self {
@@ -263,7 +263,7 @@ impl<T: Serialize> Serialize for Option<T> {
         }
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         self.is_some().serialize(stream)?;
         if let Some(val) = self {
             val.serialize(stream)?;
@@ -305,7 +305,7 @@ impl<T: Serialize> Serialize for LengthInferredArray<T> {
         self.0.iter().map(Serialize::size).sum::<usize>()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         for val in &self.0 {
             val.serialize(stream)?;
         }
@@ -329,7 +329,7 @@ impl Serialize for LengthInferredByteArray {
         self.0.len()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         stream.write_all(&self.0)
     }
 }
@@ -339,7 +339,7 @@ impl<T: Serialize> Serialize for Box<T> {
         self.deref().size()
     }
 
-    fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), SerializeError> {
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
         self.deref().serialize(stream)
     }
 }

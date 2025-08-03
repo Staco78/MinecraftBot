@@ -58,10 +58,7 @@ macro_rules! Var {
                 }
             }
 
-            fn serialize(
-                &self,
-                stream: &mut crate::data::DataStream,
-            ) -> Result<(), crate::data::SerializeError> {
+            fn serialize(&self, stream: &mut dyn Write) -> Result<(), crate::data::SerializeError> {
                 if self.0 == 0 {
                     stream.write_all(&[0])?;
                     return Ok(());

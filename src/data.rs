@@ -1,5 +1,5 @@
 mod stream;
-use std::io;
+use std::io::{self, Write};
 
 pub use stream::{DataStream, ReadWrite};
 
@@ -11,7 +11,7 @@ pub type SerializeError = io::Error;
 
 pub trait Serialize {
     fn size(&self) -> usize;
-    fn serialize(&self, stream: &mut DataStream) -> Result<(), SerializeError>;
+    fn serialize(&self, stream: &mut dyn Write) -> Result<(), SerializeError>;
 }
 
 #[derive(Debug, Error)]
@@ -36,14 +36,14 @@ impl<U: Deserialize, V: Deserialize> Deserialize for (U, V) {
     }
 }
 
-// impl<U: Serialize, V: Serialize> Serialize for (U, V) {
-//     fn size(&self) -> usize {
-//         self.0.size() + self.1.size()
-//     }
+impl<U: Serialize, V: Serialize> Serialize for (U, V) {
+    fn size(&self) -> usize {
+        self.0.size() + self.1.size()
+    }
 
-//     fn serialize(&self, stream: &mut DataStream) -> Result<(), SerializeError> {
-//         self.0.serialize(stream)?;
-//         self.1.serialize(stream)?;
-//         Ok(())
-//     }
-// }
+    fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), SerializeError> {
+        self.0.serialize(stream)?;
+        self.1.serialize(stream)?;
+        Ok(())
+    }
+}

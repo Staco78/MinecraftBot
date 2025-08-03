@@ -30,6 +30,7 @@ impl From<VarInt> for EntityId {
 
 #[derive(Debug, Clone, Default)]
 pub struct Entity {
+    #[allow(dead_code)]
     pub uuid: u128,
     pub position: Vec3d,
     pub rotation: Rotation,

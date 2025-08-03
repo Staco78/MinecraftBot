@@ -161,7 +161,7 @@ fn serialize_derive_enum(
             }
 
 
-            fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), crate::data::SerializeError> {
+            fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), crate::data::SerializeError> {
                 match self {
                     #(#serialize_lines),*
                 }
@@ -253,7 +253,7 @@ fn serialize_derive_struct(
             }
 
             #[allow(unused_variables)]
-            fn serialize(&self, stream: &mut crate::data::DataStream) -> Result<(), crate::data::SerializeError> {
+            fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), crate::data::SerializeError> {
                 #(#field_codes_serialize)*
                 Ok(())
             }

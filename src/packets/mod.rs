@@ -1,14 +1,14 @@
-#![allow(dead_code)]
-
 mod receive;
+mod send;
 
 pub use receive::*;
+pub use send::*;
 
 use macros::{Deserialize, Serialize};
 
 use crate::{
     bitflags,
-    data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
+    data::{DataStream, Deserialize, DeserializeError, Serialize},
     datatypes::{Angle, LengthInferredByteArray, Or, VarInt},
     game::{Color, EntityId, IdSet, Rotation, SlotDisplay, Vec3, Vec3d, Vec3i},
     nbt::Nbt,
@@ -20,19 +20,6 @@ pub trait ServerboundPacket: Serialize {
 
 pub trait ClientboundPacket: Deserialize {
     const ID: u32;
-}
-
-pub fn send_packet<T: ServerboundPacket>(
-    stream: &mut dyn ReadWrite,
-    packet: T,
-) -> Result<(), SerializeError> {
-    let mut stream = DataStream::new(stream, 0);
-    let id = VarInt(T::ID as i32);
-    let size = packet.size() + id.size();
-    assert!(size <= i32::MAX as _);
-    VarInt(size as i32).serialize(&mut stream)?;
-    id.serialize(&mut stream)?;
-    packet.serialize(&mut stream)
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +39,7 @@ pub struct StatusRequest {}
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 0]
+#[allow(dead_code)]
 pub struct StatusResponse {
     pub response: String,
 }
@@ -63,7 +51,7 @@ pub struct PingPong {
     pub timestamp: i64,
 }
 
-/// State Login
+// State Login
 
 #[derive(Debug, Serialize)]
 #[sb_id = 0]
@@ -75,6 +63,7 @@ pub struct LoginStart {
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 2]
+#[allow(dead_code)]
 pub struct LoginSuccess {
     pub uuid: u128,
     pub username: String,
@@ -82,6 +71,7 @@ pub struct LoginSuccess {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PlayerProperty {
     pub name: String,
     pub value: String,
@@ -92,7 +82,7 @@ pub struct PlayerProperty {
 #[sb_id = 3]
 pub struct LoginAcknowledged {}
 
-/// State Configuration
+// State Configuration
 
 #[derive(Debug, Deserialize, Serialize)]
 #[cb_id = 1]
@@ -102,6 +92,7 @@ pub struct PluginMessage {
     pub data: LengthInferredByteArray,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x0C]
 pub struct FeatureFlags(Vec<String>);
@@ -125,12 +116,14 @@ pub struct FinishConfiguration {}
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 7]
+#[allow(dead_code)]
 pub struct RegistryData {
     pub registry_id: String,
     pub entries: Vec<RegistryDataEntry>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct RegistryDataEntry {
     pub entry_id: String,
     pub data: Option<Nbt>,
@@ -138,15 +131,18 @@ pub struct RegistryDataEntry {
 
 #[derive(Debug, Deserialize)]
 #[cb_id = 0xD]
+#[allow(dead_code)]
 pub struct UpdateTags {
     pub tags_array: Vec<(String, Tags)>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct Tags(Vec<(String, Vec<VarInt>)>);
 
-/// State Play
+// State Play
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2B]
 pub struct Login {
@@ -172,12 +168,14 @@ pub struct Login {
     pub enforce_secure_chat: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct DeathLocation {
     pub dimension_name: String,
     pub location: Vec3i,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0xA]
 pub struct ChangeDifficulty {
@@ -185,6 +183,7 @@ pub struct ChangeDifficulty {
     pub is_locked: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x39]
 pub struct PlayerAbilities {
@@ -203,12 +202,14 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x62]
 pub struct SetHeldItem {
     pub slot: VarInt,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x7E]
 pub struct UpdateRecipes {
@@ -216,6 +217,7 @@ pub struct UpdateRecipes {
     pub stonecutter_recipes: Vec<(IdSet, SlotDisplay)>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x1E]
 pub struct EntityEvent {
@@ -257,6 +259,7 @@ pub struct ConfirmTeleportation {
     pub teleport_id: VarInt,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x83]
 pub struct Waypoint {
@@ -275,6 +278,7 @@ pub enum WaypointOperation {
     Update = 2,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[enum_repr(VarInt)]
 pub enum WaypointData {
@@ -284,6 +288,7 @@ pub enum WaypointData {
     Azimuth(f32),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2E]
 pub struct UpdateEntityPosition {
@@ -294,6 +299,7 @@ pub struct UpdateEntityPosition {
     pub on_ground: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x2F]
 pub struct UpdateEntityPositionRotation {
@@ -315,12 +321,28 @@ bitflags! {
 }
 
 #[derive(Debug, Serialize)]
+#[sb_id = 0x1D]
+pub struct SetPlayerPosition {
+    pub pos: Vec3d, // Y is feet Y
+    pub flags: PlayerPosFlags,
+}
+
+#[derive(Debug, Serialize)]
+#[sb_id = 0x1E]
+pub struct SetPlayerPositionRotation {
+    pub pos: Vec3d, // Y is feet Y
+    pub rotation: Rotation,
+    pub flags: PlayerPosFlags,
+}
+
+#[derive(Debug, Serialize)]
 #[sb_id = 0x1F]
 pub struct SetPlayerRotation {
     pub rotation: Rotation,
     pub flags: PlayerPosFlags,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct PlayersInfoUpdate {
     pub players: Vec<(u128, Vec<PlayerAction>)>,
@@ -394,6 +416,7 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum PlayerAction {
     AddPlayer {
@@ -409,6 +432,7 @@ pub enum PlayerAction {
     UpdateHat(bool),
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct InitializeChatData {
     pub uuid: u128,
@@ -417,6 +441,7 @@ pub struct InitializeChatData {
     pub key_signature: Vec<u8>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x1]
 pub struct AddEntity {
@@ -438,6 +463,7 @@ pub struct AddEntity {
 #[sb_id = 0x1B]
 pub struct KeepAlive(pub i64);
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 #[cb_id = 0x1F]
 pub struct TeleportEntity {
@@ -454,5 +480,5 @@ pub struct SetEntityVelocity {
     pub entity_id: VarInt,
     pub vx: i16,
     pub vy: i16,
-    pub vz: i16
+    pub vz: i16,
 }

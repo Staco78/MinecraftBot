@@ -1,16 +1,15 @@
 #![allow(clippy::uninlined_format_args)]
 
-use std::{
-    cell::{RefCell, RefMut},
-    error::Error,
-    net::TcpStream,
-    process::exit,
-};
+use std::{error::Error, net::TcpStream, ops::Deref, process::exit};
+
+use parking_lot::RwLock;
 
 use crate::{
     data::{DeserializeError, ReadWrite, SerializeError},
     datatypes::VarInt,
-    game::{Entity, EntityId, EntityRef, Game, GameError, Rotation, Vec3d},
+    game::{
+        Entity, EntityId, EntityRef, Game, GameError, Rotation, Vec3d, entities, start_gameloop,
+    },
     packets::{
         AddEntity, ChangeDifficulty, ConfirmTeleportation, ConnectionState, EntityEvent,
         FeatureFlags, FinishConfiguration, Handshake, KeepAlive, KnownPacks, Login,
@@ -18,7 +17,7 @@ use crate::{
         PlayerPosFlags, PlayersInfoUpdate, PluginMessage, ReceiveError, RegistryData,
         SetEntityVelocity, SetHeldItem, SetPlayerRotation, SynchronizePlayerPosition,
         TeleportEntity, TeleportFlags, UpdateEntityPosition, UpdateEntityPositionRotation,
-        UpdateRecipes, UpdateTags, Waypoint, send_packet,
+        UpdateRecipes, UpdateTags, Waypoint, init_multithread, send_collected_packets, send_packet,
     },
 };
 
@@ -61,8 +60,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         };
 
-        game.player.entity = EntityRef::new(RefCell::new(player_entity)); // placeholder entity without id
+        let mut game = game.write();
+
+        game.player.entity = EntityRef::new(RwLock::new(player_entity)); // placeholder entity without id
         game.player.name = packet.username;
+
+        drop(game);
 
         send_packet(stream, LoginAcknowledged {})?;
         Ok(Some(ConnectionState::Configuration))
@@ -102,7 +105,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     receiver.set_callback(|packet: Login, _stream, game| {
-        let entity = game.player.entity.take();
+        let mut game = game.write();
+
+        let entity = game.player.entity.read().clone();
         let entity_ref = game.entities.add(packet.entity_id, entity);
         game.player.entity = entity_ref;
 
@@ -114,13 +119,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     receiver.set_callback(|_packet: UpdateRecipes, _, _game| Ok(None));
     receiver.set_callback(|_packet: EntityEvent, _, _game| Ok(None));
     receiver.set_callback(|packet: SynchronizePlayerPosition, stream, game| {
+        let game = game.read();
+        let mut entity = game.player.entity.write_arc();
+        drop(game);
+
         macro_rules! synchronize_axis {
             ($($field:ident).*, $flag: ident) => {
                 if packet.flags.contains(TeleportFlags:: $flag) {
-                    game.player.entity.borrow_mut().$($field).* += packet.$($field).*;
+                    entity.$($field).* += packet.$($field).*;
                 }
                 else {
-                    game.player.entity.borrow_mut().$($field).* = packet.$($field).*;
+                    entity.$($field).* = packet.$($field).*;
                 }
             };
         }
@@ -136,11 +145,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         synchronize_axis!(speed.y, RVY);
         synchronize_axis!(speed.z, RVZ);
 
+        drop(entity);
+
         if packet.flags.contains(TeleportFlags::ROTATE_BEFORE) {
             todo!()
         }
-
-        dbg!(&game);
 
         send_packet(
             stream,
@@ -153,7 +162,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     receiver.set_callback(|_packet: Waypoint, _, _| Ok(None));
     receiver.set_callback(|packet: UpdateEntityPosition, stream, game| {
         let entity_id = packet.entity_id.into();
-        let entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, game)?;
+
+        let game = game.read();
+
+        let entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, &game)?;
         entity_moved(&entity, stream, game)?;
 
         Ok(None)
@@ -161,7 +173,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     receiver.set_callback(|packet: UpdateEntityPositionRotation, stream, game| {
         let entity_id = packet.entity_id.into();
 
-        let mut entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, game)?;
+        let game = game.read();
+
+        let mut entity = update_entity_pos(entity_id, packet.dx, packet.dy, packet.dz, &game)?;
         entity_moved(&entity, stream, game)?;
 
         entity.rotation = Rotation::from_angles(packet.yaw, packet.pitch);
@@ -171,6 +185,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     receiver.set_callback(|packet: TeleportEntity, stream, game| {
         let id = packet.entity_id.into();
+
+        let game = game.read();
+
         let mut entity = game
             .entities
             .get_mut(id)
@@ -188,6 +205,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     receiver.set_callback(|packet: SetEntityVelocity, _, game| {
         let id = packet.entity_id.into();
         let mut entity = game
+            .read()
             .entities
             .get_mut(id)
             .ok_or(GameError::UnkonwnEntity(id))?;
@@ -207,12 +225,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             speed: Vec3d::speed_from_entity_velocity(packet.vx, packet.vy, packet.vz),
             entity_type: packet.entity_type.into(),
         };
-        game.entities.add(packet.entity_id.into(), entity);
-
-        dbg!(&game.entities);
+        game.read().entities.add(packet.entity_id.into(), entity);
 
         Ok(None)
     });
+
+    let inter_threads_receiver = init_multithread();
+    start_gameloop(receiver.game());
 
     loop {
         let r = receiver.receive_packet(&mut stream);
@@ -223,20 +242,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             e => println!("{:?}", e),
         }
+
+        send_collected_packets(&inter_threads_receiver, &mut stream)?;
     }
 }
 
-fn update_entity_pos<'a>(
+fn update_entity_pos(
     id: EntityId,
     dx: i16,
     dy: i16,
     dz: i16,
-    game: &'a Game,
-) -> Result<RefMut<'a, Entity>, ReceiveError> {
+    game: &Game,
+) -> Result<entities::WriteGuard, ReceiveError> {
     let mut entity = game
         .entities
         .get_mut(id)
         .ok_or(GameError::UnkonwnEntity(id))?;
+
     let dpos = Vec3d {
         x: dx as f64 / 4096.,
         y: dy as f64 / 4096.,
@@ -250,10 +272,11 @@ fn update_entity_pos<'a>(
 fn entity_moved(
     entity: &Entity,
     stream: &mut dyn ReadWrite,
-    game: &Game,
+    game: impl Deref<Target = Game>,
 ) -> Result<(), SerializeError> {
     if entity.entity_type == 149 {
-        let pos_diff = entity.position - game.player.entity.borrow().position;
+        let pos_diff = entity.position - game.player.entity.read().position;
+
         let mut yaw = -f64::atan2(pos_diff.x, pos_diff.z).to_degrees() as f32;
         if yaw < 0. {
             yaw += 360.;
@@ -266,10 +289,15 @@ fn entity_moved(
         .length();
         let pitch = -f64::atan(pos_diff.y / dist).to_degrees() as f32;
 
+        let new_rotation = Rotation { yaw, pitch };
+
+        game.player.entity.write().rotation = new_rotation;
+        drop(game);
+
         send_packet(
             stream,
             SetPlayerRotation {
-                rotation: Rotation { yaw, pitch },
+                rotation: new_rotation,
                 flags: PlayerPosFlags::empty(),
             },
         )?;

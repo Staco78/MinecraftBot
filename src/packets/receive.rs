@@ -1,6 +1,7 @@
 use core::assert_ne;
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc};
 
+use parking_lot::RwLock;
 use thiserror::Error;
 
 use crate::{
@@ -13,6 +14,7 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionState {
     Handshaking,
+    #[allow(unused)]
     Status,
     Login,
     Configuration,
@@ -41,19 +43,18 @@ pub enum ReceiveError {
     DeserializeError(#[from] DeserializeError),
 
     #[error("Game error: {0}")]
-    GameError(#[from] GameError)
+    GameError(#[from] GameError),
 }
 
-// #[derive(Debug)]
 pub struct PacketReceiver<'a> {
     state: ConnectionState,
     callbacks: HashMap<u32, RealCb<'a>>,
     _phantom: PhantomData<&'a ()>,
-    game: Game,
+    game: Arc<RwLock<Game>>,
 }
 
 type RealCb<'a> = Box<
-    dyn FnMut(&mut DataStream, &mut Game) -> Result<Option<ConnectionState>, ReceiveError> + 'a,
+    dyn FnMut(&mut DataStream, &RwLock<Game>) -> Result<Option<ConnectionState>, ReceiveError> + 'a,
 >;
 
 impl<'a> PacketReceiver<'a> {
@@ -62,8 +63,12 @@ impl<'a> PacketReceiver<'a> {
             state: ConnectionState::Handshaking,
             callbacks: HashMap::new(),
             _phantom: PhantomData,
-            game: Game::default(),
+            game: Arc::default(),
         }
+    }
+
+    pub fn game(&self) -> Arc<RwLock<Game>> {
+        Arc::clone(&self.game)
     }
 
     /// Clear all callbacks.
@@ -84,12 +89,12 @@ impl<'a> PacketReceiver<'a> {
         mut cb: impl FnMut(
             T,
             &mut dyn ReadWrite,
-            &mut Game,
+            &RwLock<Game>,
         ) -> Result<Option<ConnectionState>, ReceiveError>
         + 'a,
     ) {
         let real_cb: RealCb = Box::new(
-            move |stream: &mut crate::data::DataStream, game: &mut Game| {
+            move |stream, game| {
                 let packet = match T::deserialize(stream) {
                     Ok(packet) => packet,
                     Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
@@ -103,7 +108,10 @@ impl<'a> PacketReceiver<'a> {
                 let r = cb(packet, stream, game)?;
                 if stream.remaining_size() > 0 {
                     println!("WARN: Packet still has data to read");
-                    println!("data: {:?}", LengthInferredByteArray::deserialize(stream)?.0);
+                    println!(
+                        "data: {:?}",
+                        LengthInferredByteArray::deserialize(stream)?.0
+                    );
                 }
                 Ok(r)
             },

@@ -100,7 +100,7 @@ macro_rules! bitflags {
                 size_of::<$T>()
             }
 
-            fn serialize(&self, stream: &mut $crate::data::DataStream) -> Result<(), $crate::data::SerializeError> {
+            fn serialize(&self, stream: &mut dyn std::io::Write) -> Result<(), $crate::data::SerializeError> {
                 self.bits().serialize(stream)
             }
         }

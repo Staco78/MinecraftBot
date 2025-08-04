@@ -1,5 +1,4 @@
-use core::assert_ne;
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
 use parking_lot::RwLock;
 use thiserror::Error;
@@ -8,8 +7,49 @@ use crate::{
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, SerializeError},
     datatypes::{LengthInferredByteArray, VarInt},
     game::{Game, GameError},
-    packets::ClientboundPacket,
+    packets::{
+        AddEntity, ChangeDifficulty, EntityEvent, FeatureFlags, FinishConfiguration, KeepAlive,
+        KnownPacks, Login, LoginSuccess, PlayerAbilities, PlayersInfoUpdate, PluginMessage,
+        RegistryData, SetEntityVelocity, SetHeldItem, SynchronizePlayerPosition, TeleportEntity,
+        UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
+    },
 };
+
+pub trait ClientboundPacket: Deserialize {
+    const ID: u32;
+    const STATE: ConnectionState;
+    const NEW_STATE: Option<ConnectionState> = None;
+
+    fn receive(
+        self,
+        _stream: &mut dyn ReadWrite,
+        _game: &RwLock<Game>,
+    ) -> Result<(), ReceiveError> {
+        Ok(())
+    }
+
+    fn receive_(stream: &mut DataStream, game: &RwLock<Game>) -> Result<(), ReceiveError> {
+        let packet = match Self::deserialize(stream) {
+            Ok(packet) => packet,
+            Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
+            Err(e) => {
+                // Read the remaining bytes
+                LengthInferredByteArray::deserialize(stream)?;
+                return Err(e.into());
+            }
+        };
+        packet.receive(stream, game)?;
+        if stream.remaining_size() > 0 {
+            println!("WARN: Packet still has data to read");
+            println!(
+                "data: {:?}",
+                LengthInferredByteArray::deserialize(stream)?.0
+            );
+        }
+
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionState {
@@ -48,20 +88,14 @@ pub enum ReceiveError {
 
 pub struct PacketReceiver<'a> {
     state: ConnectionState,
-    callbacks: HashMap<u32, RealCb<'a>>,
     _phantom: PhantomData<&'a ()>,
     game: Arc<RwLock<Game>>,
 }
-
-type RealCb<'a> = Box<
-    dyn FnMut(&mut DataStream, &RwLock<Game>) -> Result<Option<ConnectionState>, ReceiveError> + 'a,
->;
 
 impl<'a> PacketReceiver<'a> {
     pub fn new() -> Self {
         Self {
             state: ConnectionState::Handshaking,
-            callbacks: HashMap::new(),
             _phantom: PhantomData,
             game: Arc::default(),
         }
@@ -71,53 +105,13 @@ impl<'a> PacketReceiver<'a> {
         Arc::clone(&self.game)
     }
 
-    /// Clear all callbacks.
-    ///
-    /// Panic if the state is the same as before.
-    pub fn change_state(&mut self, new_state: ConnectionState) {
+    pub fn set_state(&mut self, new_state: ConnectionState) {
         assert_ne!(new_state, self.state);
         self.state = new_state;
-        self.callbacks.clear();
     }
 
     pub fn get_state(&self) -> ConnectionState {
         self.state
-    }
-
-    pub fn set_callback<T: ClientboundPacket + Debug>(
-        &mut self,
-        mut cb: impl FnMut(
-            T,
-            &mut dyn ReadWrite,
-            &RwLock<Game>,
-        ) -> Result<Option<ConnectionState>, ReceiveError>
-        + 'a,
-    ) {
-        let real_cb: RealCb = Box::new(
-            move |stream, game| {
-                let packet = match T::deserialize(stream) {
-                    Ok(packet) => packet,
-                    Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
-                    Err(e) => {
-                        // Read the remaining bytes
-                        LengthInferredByteArray::deserialize(stream)?;
-                        return Err(e.into());
-                    }
-                };
-                // dbg!(&packet);
-                let r = cb(packet, stream, game)?;
-                if stream.remaining_size() > 0 {
-                    println!("WARN: Packet still has data to read");
-                    println!(
-                        "data: {:?}",
-                        LengthInferredByteArray::deserialize(stream)?.0
-                    );
-                }
-                Ok(r)
-            },
-        );
-
-        self.callbacks.insert(T::ID, real_cb);
     }
 
     pub fn receive_packet(&mut self, stream: &mut dyn ReadWrite) -> Result<(), ReceiveError> {
@@ -136,22 +130,51 @@ impl<'a> PacketReceiver<'a> {
         let id = VarInt::deserialize(&mut stream)?.0;
         dbg!(id);
         assert!(id >= 0);
-        self.call_cb(&mut stream, id as u32)
+        self.receive_packet_(&mut stream, id as u32)
     }
 
-    fn call_cb(&mut self, stream: &mut DataStream, id: u32) -> Result<(), ReceiveError> {
-        match self.callbacks.get_mut(&id) {
-            Some(cb) => {
-                let state = cb(stream, &mut self.game)?;
-                if let Some(new_state) = state {
-                    self.change_state(new_state);
+    fn receive_packet_(&mut self, stream: &mut DataStream, id: u32) -> Result<(), ReceiveError> {
+        macro_rules! receive {
+            ($($type: ty),*) => {
+                match id {
+                    $(<$type>::ID if self.state == <$type>::STATE => {
+                        <$type>::receive_(stream, &self.game)?;
+                        if let Some(state) = <$type>::NEW_STATE {
+                            self.set_state(state);
+                        }
+                        Ok(())
+                    })*
+                    _ => {
+                        LengthInferredByteArray::deserialize(stream)?;
+                        Err(ReceiveError::UnknownPacketId(id))
+                    }
                 }
-                Ok(())
-            }
-            None => {
-                LengthInferredByteArray::deserialize(stream)?;
-                Err(ReceiveError::UnknownPacketId(id))
-            }
+            };
         }
+
+        receive!(
+            LoginSuccess,
+            PluginMessage,
+            FeatureFlags,
+            KnownPacks,
+            FinishConfiguration,
+            RegistryData,
+            UpdateTags,
+            Login,
+            ChangeDifficulty,
+            PlayerAbilities,
+            SetHeldItem,
+            UpdateRecipes,
+            EntityEvent,
+            SynchronizePlayerPosition,
+            Waypoint,
+            UpdateEntityPosition,
+            UpdateEntityPositionRotation,
+            PlayersInfoUpdate,
+            AddEntity,
+            KeepAlive,
+            TeleportEntity,
+            SetEntityVelocity
+        )
     }
 }

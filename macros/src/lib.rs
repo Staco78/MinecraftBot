@@ -261,7 +261,7 @@ fn serialize_derive_struct(
     }.into())
 }
 
-#[proc_macro_derive(Deserialize, attributes(cb_id, enum_repr))]
+#[proc_macro_derive(Deserialize, attributes(enum_repr))]
 pub fn deserialize_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -356,7 +356,7 @@ fn deserialize_derive_enum(
     }
 
     Ok((quote_spanned! {span=>
-        // #(#asserts)*
+        #(#asserts)*
 
         impl #generics_with_params crate::data::Deserialize for #name #generics {
             fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, crate::data::DeserializeError> {
@@ -390,22 +390,6 @@ fn deserialize_derive_struct(
         .map(|param| param.ident.clone())
         .collect();
 
-    let id_code = if let Some(attr) = get_attr(input, "cb_id") {
-        let cb_id = &attr
-            .meta
-            .require_name_value()
-            .map_err(syn::Error::into_compile_error)?
-            .value;
-        quote_spanned! {span=>
-            impl crate::packets::ClientboundPacket for #ident {
-                const ID: u32 = #cb_id;
-            }
-
-        }
-    } else {
-        quote! {}
-    };
-
     let mut asserts = Vec::new();
     let fields = struct_parse_fields(data_struct);
 
@@ -437,8 +421,6 @@ fn deserialize_derive_struct(
 
     Ok( quote_spanned! {span=>
         #(#asserts)*
-
-        #id_code
 
         impl #generics_with_params crate::data::Deserialize for #ident #generics {
             #[allow(unused_variables)]

@@ -19,6 +19,7 @@ const PROTOCOL_VERSION: i32 = 772;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut stream = TcpStream::connect("127.0.0.1:25565")?;
+    stream.set_nodelay(true)?;
     // stream.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut receiver = PacketReceiver::new();
 

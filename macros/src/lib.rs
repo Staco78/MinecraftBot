@@ -1,13 +1,13 @@
 #![allow(clippy::uninlined_format_args)]
 
-use std::collections::HashSet;
-
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
-use quote::{ToTokens, quote, quote_spanned};
+use quote::{quote, quote_spanned};
 use syn::{
-    Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr, ExprLit, Field, Fields, FieldsNamed,
-    FieldsUnnamed, Lit, LitInt, Member, TypePath, parse_macro_input, parse_quote, spanned::Spanned,
+    AngleBracketedGenericArguments, Attribute, Data, DataEnum, DataStruct, DeriveInput, Expr,
+    ExprLit, Field, Fields, FieldsNamed, FieldsUnnamed, GenericArgument, Lit, LitInt, Member,
+    PathArguments, PredicateType, Token, Type, TypePath, WherePredicate, parse_macro_input,
+    parse_quote, punctuated::Punctuated, spanned::Spanned,
 };
 
 fn error(msg: String, span: Span) -> TokenStream {
@@ -27,15 +27,32 @@ fn get_attr(input: &DeriveInput, attr_name: &str) -> Option<Attribute> {
         .cloned()
 }
 
-fn assert_trait(
-    span: Span,
-    ty: proc_macro2::TokenStream,
-    trait_: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
-    let type_name = format!("_AssertTrait{}", rand::random::<u64>());
-    let type_name = Ident::new(&type_name, span);
-    quote_spanned! {span=>
-        struct #type_name where #ty: #trait_;
+fn type_contains_ident(ty: &Type, ident: &Ident) -> bool {
+    match ty {
+        Type::Path(TypePath { path, .. }) => {
+            if path.is_ident(ident) {
+                return true;
+            }
+
+            for segment in &path.segments {
+                if let PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                    args, ..
+                }) = &segment.arguments
+                {
+                    for arg in args {
+                        match arg {
+                            GenericArgument::Type(ty) if type_contains_ident(ty, ident) => {
+                                return true;
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+            }
+
+            false
+        }
+        _ => false,
     }
 }
 
@@ -55,16 +72,10 @@ fn serialize_derive_enum(
 ) -> Result<TokenStream, TokenStream> {
     commond_checks_enum(input, data_enum)?;
     let span = input.span();
-    let name = &input.ident;
-    let generics = &input.generics;
-    let mut generics_with_params = generics.clone();
-    for param in generics_with_params.type_params_mut() {
-        param.bounds.push(parse_quote!(crate::data::Serialize));
-    }
-    let generics_types: HashSet<_> = generics
-        .type_params()
-        .map(|param| param.ident.clone())
-        .collect();
+    let ident = &input.ident;
+
+    let mut generics = input.generics.clone();
+    let where_clause = generics.make_where_clause();
 
     let repr: Ident = if let Some(attr) = get_attr(input, "enum_repr") {
         let list = attr
@@ -75,8 +86,6 @@ fn serialize_derive_enum(
     } else {
         return Err(error("Missing enum_repr attribute".to_string(), span));
     };
-
-    let mut asserts = Vec::new();
 
     let (mut size_lines, mut serialize_lines) = (Vec::new(), Vec::new());
     let mut current_discriminant = 0;
@@ -102,18 +111,18 @@ fn serialize_derive_enum(
         let name = &variant.ident;
 
         for field in &variant.fields {
-            if let syn::Type::Path(TypePath { path, .. }) = &field.ty
-                && let Some(ident) = path.get_ident()
-                && generics_types.contains(ident)
-            {
-                continue;
+            if !type_contains_ident(&field.ty, ident) {
+                let mut bounds = Punctuated::new();
+                bounds.push(parse_quote!(crate::data::Serialize));
+                where_clause
+                    .predicates
+                    .push(WherePredicate::Type(PredicateType {
+                        bounded_ty: field.ty.clone(),
+                        bounds,
+                        colon_token: Token![:](span),
+                        lifetimes: None,
+                    }));
             }
-
-            asserts.push(assert_trait(
-                span,
-                field.ty.to_token_stream(),
-                quote! {crate::data::Serialize},
-            ));
         }
 
         let (idents, apply_delimiters): (_, &dyn Fn(proc_macro2::TokenStream) -> _) =
@@ -149,11 +158,11 @@ fn serialize_derive_enum(
         current_discriminant += 1;
     }
 
-    Ok((quote_spanned! {span=>
-        #(#asserts)*
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+    Ok((quote_spanned! {span=>
         #[allow(clippy::just_underscores_and_digits)]
-        impl #generics_with_params crate::data::Serialize for #name #generics {
+        impl #impl_generics crate::data::Serialize for #ident #ty_generics #where_clause {
             fn size(&self) -> usize {
                 match self {
                     #(#size_lines),*
@@ -178,17 +187,10 @@ fn serialize_derive_struct(
     common_checks_struct(input, data_struct)?;
 
     let span = input.span();
-    let ident = input.ident.clone();
+    let name = &input.ident;
 
-    let generics = &input.generics;
-    let mut generics_with_params = generics.clone();
-    for param in generics_with_params.type_params_mut() {
-        param.bounds.push(parse_quote!(crate::data::Serialize));
-    }
-    let generics_types: HashSet<_> = generics
-        .type_params()
-        .map(|param| param.ident.clone())
-        .collect();
+    let mut generics = input.generics.clone();
+    let where_clause = generics.make_where_clause();
 
     let id_code = if let Some(attr) = get_attr(input, "sb_id") {
         let sb_id = &attr
@@ -197,7 +199,7 @@ fn serialize_derive_struct(
             .map_err(syn::Error::into_compile_error)?
             .value;
         quote_spanned! {span=>
-            impl crate::packets::ServerboundPacket for #ident {
+            impl crate::packets::ServerboundPacket for #name {
                 const ID: u32 = #sb_id;
             }
 
@@ -206,7 +208,6 @@ fn serialize_derive_struct(
         quote! {}
     };
 
-    let mut asserts = Vec::new();
     let fields = struct_parse_fields(data_struct);
 
     let (field_codes_size, field_codes_serialize): (Vec<_>, Vec<_>) = fields
@@ -214,20 +215,17 @@ fn serialize_derive_struct(
         .map(|(field, member)| {
             let span = member.span();
 
-            let is_generic = if let syn::Type::Path(TypePath { path, .. }) = &field.ty
-                && let Some(ident) = path.get_ident()
-            {
-                generics_types.contains(ident)
-            } else {
-                false
-            };
-
-            if !is_generic {
-                asserts.push(assert_trait(
-                    span,
-                    field.ty.to_token_stream(),
-                    quote_spanned! {span=> crate::data::Serialize},
-                ));
+            if !type_contains_ident(&field.ty, name) {
+                let mut bounds = Punctuated::new();
+                bounds.push(parse_quote!(crate::data::Serialize));
+                where_clause
+                    .predicates
+                    .push(WherePredicate::Type(PredicateType {
+                        bounded_ty: field.ty,
+                        bounds,
+                        colon_token: Token![:](span),
+                        lifetimes: None,
+                    }));
             }
 
             let size = quote_spanned! {span=> n += self.#member.size();};
@@ -238,13 +236,12 @@ fn serialize_derive_struct(
         .unzip();
 
     let ident = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     Ok(quote_spanned! {span=>
-        #(#asserts)*
-
         #id_code
 
-        impl #generics_with_params crate::data::Serialize for #ident #generics {
+        impl #impl_generics crate::data::Serialize for #ident #ty_generics #where_clause {
             #[allow(unused_mut, clippy::let_and_return)]
             fn size(&self) -> usize {
                 let mut n = 0;
@@ -278,16 +275,10 @@ fn deserialize_derive_enum(
 ) -> Result<TokenStream, TokenStream> {
     commond_checks_enum(input, data_enum)?;
     let span = input.span();
-    let name = &input.ident;
-    let generics = &input.generics;
-    let mut generics_with_params = generics.clone();
-    for param in generics_with_params.type_params_mut() {
-        param.bounds.push(parse_quote!(crate::data::Deserialize));
-    }
-    let generics_types: HashSet<_> = generics
-        .type_params()
-        .map(|param| param.ident.clone())
-        .collect();
+    let ident = &input.ident;
+
+    let mut generics = input.generics.clone();
+    let where_clause = generics.make_where_clause();
 
     let repr: Ident = if let Some(attr) = get_attr(input, "enum_repr") {
         let list = attr
@@ -298,8 +289,6 @@ fn deserialize_derive_enum(
     } else {
         return Err(error("Missing enum_repr attribute".to_string(), span));
     };
-
-    let mut asserts = Vec::new();
 
     let mut deserialize_lines = Vec::new();
     let mut current_discriminant = 0;
@@ -323,17 +312,18 @@ fn deserialize_derive_enum(
         let name = &variant.ident;
 
         for field in &variant.fields {
-            if let syn::Type::Path(TypePath { path, .. }) = &field.ty
-                && let Some(ident) = path.get_ident()
-                && generics_types.contains(ident)
-            {
-                continue;
+            if !type_contains_ident(&field.ty, ident) {
+                let mut bounds = Punctuated::new();
+                bounds.push(parse_quote!(crate::data::Deserialize));
+                where_clause
+                    .predicates
+                    .push(WherePredicate::Type(PredicateType {
+                        bounded_ty: field.ty.clone(),
+                        bounds,
+                        colon_token: Token![:](span),
+                        lifetimes: None,
+                    }));
             }
-            asserts.push(assert_trait(
-                span,
-                field.ty.to_token_stream(),
-                quote! {crate::data::Deserialize},
-            ));
         }
 
         let deserialize = match &variant.fields {
@@ -355,15 +345,16 @@ fn deserialize_derive_enum(
         current_discriminant += 1;
     }
 
-    Ok((quote_spanned! {span=>
-        #(#asserts)*
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        impl #generics_with_params crate::data::Deserialize for #name #generics {
+    Ok((quote_spanned! {span=>
+
+        impl #impl_generics crate::data::Deserialize for #ident #ty_generics #where_clause {
             fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, crate::data::DeserializeError> {
                 let repr = <#repr>::deserialize(stream)?;
                 match crate::utils::macros::EnumRepr::to_value(repr) {
                     #(#deserialize_lines,)*
-                    other => Err(crate::data::DeserializeError::MalformedPacket(format!("{}: invalid type {}", stringify!(#name), other)))
+                    other => Err(crate::data::DeserializeError::MalformedPacket(format!("{}: invalid type {}", stringify!(#ident), other)))
                 }
             }
         }
@@ -378,51 +369,40 @@ fn deserialize_derive_struct(
     common_checks_struct(input, data_struct)?;
 
     let span = input.span();
-    let ident = input.ident.clone();
+    let name = &input.ident;
 
-    let generics = &input.generics;
-    let mut generics_with_params = generics.clone();
-    for param in generics_with_params.type_params_mut() {
-        param.bounds.push(parse_quote!(crate::data::Deserialize));
-    }
-    let generics_types: HashSet<_> = generics
-        .type_params()
-        .map(|param| param.ident.clone())
-        .collect();
+    let mut generics = input.generics.clone();
+    let where_clause = generics.make_where_clause();
 
-    let mut asserts = Vec::new();
     let fields = struct_parse_fields(data_struct);
 
     let codes = fields
         .into_iter()
         .map(|(field, member)| {
             let span = field.span();
-            let ty = field.ty.to_token_stream();
+            let ty = field.ty.clone();
 
-            let is_generic = if let syn::Type::Path(TypePath { path, .. }) = &field.ty
-                && let Some(ident) = path.get_ident()
-            {
-                generics_types.contains(ident)
-            } else {
-                false
-            };
-
-            if !is_generic {
-                asserts.push(assert_trait(
-                    span,
-                    field.ty.to_token_stream(),
-                    quote_spanned! {span=> crate::data::Deserialize},
-                ));
+            if !type_contains_ident(&field.ty, name) {
+                let mut bounds = Punctuated::new();
+                bounds.push(parse_quote!(crate::data::Deserialize));
+                where_clause
+                    .predicates
+                    .push(WherePredicate::Type(PredicateType {
+                        bounded_ty: field.ty,
+                        bounds,
+                        colon_token: Token![:](span),
+                        lifetimes: None,
+                    }));
             }
 
             quote_spanned! {span=> #member: <#ty>::deserialize(stream)?}
         })
         .collect::<Vec<_>>();
 
-    Ok( quote_spanned! {span=>
-        #(#asserts)*
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        impl #generics_with_params crate::data::Deserialize for #ident #generics {
+    Ok( quote_spanned! {span=>
+        impl #impl_generics crate::data::Deserialize for #name #ty_generics #where_clause {
             #[allow(unused_variables)]
             #[allow(clippy::init_numbered_fields)]
             fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, crate::data::DeserializeError> {

@@ -8,14 +8,15 @@ use crate::{
     datatypes::{LengthInferredByteArray, VarInt},
     game::{Game, GameError},
     packets::{
-        AddEntity, ChangeDifficulty, EntityEvent, FeatureFlags, FinishConfiguration, KeepAlive,
-        KnownPacks, Login, LoginSuccess, PlayerAbilities, PlayersInfoUpdate, PluginMessage,
-        RegistryData, SetEntityVelocity, SetHeldItem, SynchronizePlayerPosition, TeleportEntity,
-        UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
+        AddEntity, ChangeDifficulty, ChunkDataWithLight, EntityEvent, FeatureFlags,
+        FinishConfiguration, KeepAlive, KnownPacks, Login, LoginSuccess, PlayerAbilities,
+        PlayersInfoUpdate, PluginMessage, RegistryData, SetEntityVelocity, SetHeldItem,
+        SynchronizePlayerPosition, TeleportEntity, UpdateEntityPosition,
+        UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
     },
 };
 
-pub trait ClientboundPacket: Deserialize {
+pub trait ClientboundPacket: Deserialize + Debug {
     const ID: u32;
     const STATE: ConnectionState;
     const NEW_STATE: Option<ConnectionState> = None;
@@ -174,7 +175,8 @@ impl<'a> PacketReceiver<'a> {
             AddEntity,
             KeepAlive,
             TeleportEntity,
-            SetEntityVelocity
+            SetEntityVelocity,
+            ChunkDataWithLight
         )
     }
 }

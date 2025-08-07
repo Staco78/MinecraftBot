@@ -16,6 +16,7 @@ use crate::{
     game::{
         Color, Entity, EntityId, EntityRef, Game, GameError, IdSet, Rotation, SlotDisplay, Vec3,
         Vec3d, Vec3i, entities,
+        world::data::{ChunkData, LightData},
     },
     nbt::Nbt,
 };
@@ -93,8 +94,6 @@ impl ClientboundPacket for LoginSuccess {
         Ok(())
     }
 }
-
-
 
 #[derive(Debug, Serialize)]
 #[sb_id = 3]
@@ -774,4 +773,18 @@ impl ClientboundPacket for SetEntityVelocity {
 
         Ok(())
     }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize)]
+pub struct ChunkDataWithLight {
+    x: i32,
+    y: i32,
+    data: ChunkData,
+    light: LightData,
+}
+
+impl ClientboundPacket for ChunkDataWithLight {
+    const ID: u32 = 0x27;
+    const STATE: ConnectionState = ConnectionState::Play;
 }

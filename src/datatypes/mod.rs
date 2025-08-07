@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+mod bitset;
 mod varint;
 
+pub use bitset::*;
 use macros::{Deserialize, Serialize};
 pub use varint::*;
 
@@ -94,6 +96,9 @@ DeserializeNbr!(i32);
 
 SerializeNbr!(i64);
 DeserializeNbr!(i64);
+
+SerializeNbr!(u64);
+DeserializeNbr!(u64);
 
 SerializeNbr!(u128);
 DeserializeNbr!(u128);
@@ -282,6 +287,19 @@ impl<T: Deserialize> Deserialize for Option<T> {
             Ok(None)
         }
     }
+}
+
+pub fn deserialize_slice<T: Deserialize>(
+    stream: &mut crate::data::DataStream,
+    length: usize,
+) -> Result<Vec<T>, DeserializeError> {
+    let mut data = Vec::with_capacity(length);
+
+    for _ in 0..length {
+        data.push(T::deserialize(stream)?);
+    }
+
+    Ok(data)
 }
 
 #[derive(Debug)]

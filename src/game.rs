@@ -3,6 +3,7 @@ mod entity;
 mod player;
 mod types;
 mod gameloop;
+pub mod world;
 
 pub use entities::{Entities, EntityRef};
 pub use entity::*;

@@ -91,10 +91,6 @@ fn serialize_derive_enum(
     let mut current_discriminant = 0;
 
     for variant in &data_enum.variants {
-        let discriminant = Lit::Int(LitInt::new(&current_discriminant.to_string(), span));
-        let create_repr =
-            quote! {<#repr as crate::utils::macros::EnumRepr>::from_value(#discriminant)};
-
         if let Some((
             _,
             Expr::Lit(ExprLit {
@@ -106,6 +102,10 @@ fn serialize_derive_enum(
             let val: usize = val.base10_parse().map_err(syn::Error::into_compile_error)?;
             current_discriminant = val;
         }
+
+        let discriminant = Lit::Int(LitInt::new(&current_discriminant.to_string(), span));
+        let create_repr =
+            quote! {<#repr as crate::utils::macros::EnumRepr>::from_value(#discriminant)};
 
         let span = variant.span();
         let name = &variant.ident;
@@ -294,8 +294,6 @@ fn deserialize_derive_enum(
     let mut current_discriminant = 0;
 
     for variant in &data_enum.variants {
-        let discriminant = Lit::Int(LitInt::new(&current_discriminant.to_string(), span));
-
         if let Some((
             _,
             Expr::Lit(ExprLit {
@@ -325,6 +323,7 @@ fn deserialize_derive_enum(
                     }));
             }
         }
+        let discriminant = Lit::Int(LitInt::new(&current_discriminant.to_string(), span));
 
         let deserialize = match &variant.fields {
             Fields::Unit => quote! {#discriminant => Ok(Self::#name)},

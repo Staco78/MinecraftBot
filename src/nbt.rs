@@ -22,8 +22,8 @@ pub enum NbtError {
     SameName(String),
     #[error("Unknown type id {0}")]
     UnknownType(u8),
-    #[error("Malformed root")]
-    MalformedRoot,
+    #[error("Malformed root (bad id: {0})")]
+    MalformedRoot(u8),
 }
 
 #[allow(dead_code)]
@@ -142,8 +142,12 @@ impl Deserialize for Nbt {
     fn deserialize(stream: &mut DataStream) -> Result<Self, DeserializeError> {
         let id = u8::deserialize(stream)?;
 
+        if id == 0 {
+            return Ok(Self::Compound(HashMap::default()));
+        }
+
         if id != 10 {
-            return Err(NbtError::MalformedRoot.into());
+            return Err(NbtError::MalformedRoot(id).into());
         }
 
         let root = Self::deserialize_compound(stream)?;

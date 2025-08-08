@@ -7,6 +7,8 @@ use std::{
     },
 };
 
+use log::info;
+
 use crate::{
     data::{ReadWrite, Serialize, SerializeError},
     datatypes::VarInt,
@@ -20,6 +22,8 @@ pub fn send_packet<T: ServerboundPacket>(
     stream: &mut dyn ReadWrite,
     packet: T,
 ) -> Result<(), SerializeError> {
+    info!("Sending packet {}", T::ID);
+
     let id = VarInt(T::ID as _);
     let packet_size = packet.size();
     let size = packet_size + id.size();
@@ -42,6 +46,8 @@ pub fn init_multithread() -> Receiver<Vec<u8>> {
 }
 
 pub fn send_packet_from_thread<T: ServerboundPacket + Debug>(packet: T) -> Result<(), SerializeError> {
+    info!("Sending packet {}", T::ID);
+
     let id = VarInt(T::ID as _);
     let packet_size = packet.size();
     let size = packet_size + id.size();

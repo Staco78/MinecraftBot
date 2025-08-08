@@ -1,5 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, sync::Arc};
 
+use log::{info, warn};
 use parking_lot::RwLock;
 use thiserror::Error;
 
@@ -41,9 +42,9 @@ pub trait ClientboundPacket: Deserialize + Debug {
         };
         packet.receive(stream, game)?;
         if stream.remaining_size() > 0 {
-            println!("WARN: Packet still has data to read");
-            println!(
-                "data: {:?}",
+            warn!(
+                "Packet has still data to read, 
+                data: {:?}",
                 LengthInferredByteArray::deserialize(stream)?.0
             );
         }
@@ -116,7 +117,6 @@ impl<'a> PacketReceiver<'a> {
     }
 
     pub fn receive_packet(&mut self, stream: &mut dyn ReadWrite) -> Result<(), ReceiveError> {
-        dbg!(self.state);
         let size = VarInt::read(stream)?;
         if size <= 0 {
             return Err(DeserializeError::MalformedPacket(format!(
@@ -129,7 +129,7 @@ impl<'a> PacketReceiver<'a> {
         let mut stream = DataStream::new(stream, size);
 
         let id = VarInt::deserialize(&mut stream)?.0;
-        dbg!(id);
+        info!("Receiving packet {}", id);
         assert!(id >= 0);
         self.receive_packet_(&mut stream, id as u32)
     }

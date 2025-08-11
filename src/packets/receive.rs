@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{fmt::Debug, io::ErrorKind, marker::PhantomData, sync::Arc};
 
 use log::{info, warn};
 use parking_lot::RwLock;
@@ -9,10 +9,10 @@ use crate::{
     datatypes::{LengthInferredByteArray, VarInt},
     game::{Game, GameError},
     packets::{
-        AddEntity, ChangeDifficulty, ChunkDataWithLight, EntityEvent, FeatureFlags,
-        FinishConfiguration, KeepAlive, KnownPacks, Login, LoginSuccess, PlayerAbilities,
-        PlayersInfoUpdate, PluginMessage, RegistryData, SetEntityVelocity, SetHeldItem,
-        SynchronizePlayerPosition, TeleportEntity, UpdateEntityPosition,
+        AddEntity, ChangeDifficulty, ChunkBatchFinished, ChunkDataWithLight, EntityEvent,
+        FeatureFlags, FinishConfiguration, KeepAlive, KnownPacks, Login, LoginSuccess,
+        PlayerAbilities, PlayersInfoUpdate, PluginMessage, RegistryData, SetEntityVelocity,
+        SetHeldItem, SynchronizePlayerPosition, TeleportEntity, UpdateEntityPosition,
         UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
     },
 };
@@ -33,6 +33,14 @@ pub trait ClientboundPacket: Deserialize + Debug {
     fn receive_(stream: &mut DataStream, game: &RwLock<Game>) -> Result<(), ReceiveError> {
         let packet = match Self::deserialize(stream) {
             Ok(packet) => packet,
+            Err(DeserializeError::Io(e))
+                if e.kind() == ErrorKind::UnexpectedEof && stream.remaining_size() == 0 =>
+            {
+                // Here, `stream` has ran out of data but the real socket is fine
+                return Err(ReceiveError::DeserializeError(
+                    DeserializeError::UnexpectedFail,
+                ));
+            }
             Err(DeserializeError::Io(e)) => return Err(DeserializeError::Io(e).into()),
             Err(e) => {
                 // Read the remaining bytes
@@ -129,7 +137,7 @@ impl<'a> PacketReceiver<'a> {
         let mut stream = DataStream::new(stream, size);
 
         let id = VarInt::deserialize(&mut stream)?.0;
-        info!("Receiving packet {}", id);
+        info!("Receiving packet {:#0X?}", id);
         assert!(id >= 0);
         self.receive_packet_(&mut stream, id as u32)
     }
@@ -176,7 +184,8 @@ impl<'a> PacketReceiver<'a> {
             KeepAlive,
             TeleportEntity,
             SetEntityVelocity,
-            ChunkDataWithLight
+            ChunkDataWithLight,
+            ChunkBatchFinished
         )
     }
 }

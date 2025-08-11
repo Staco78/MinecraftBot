@@ -22,7 +22,7 @@ pub fn send_packet<T: ServerboundPacket>(
     stream: &mut dyn ReadWrite,
     packet: T,
 ) -> Result<(), SerializeError> {
-    info!("Sending packet {}", T::ID);
+    info!("Sending packet {:#0X?}", T::ID);
 
     let id = VarInt(T::ID as _);
     let packet_size = packet.size();
@@ -45,8 +45,10 @@ pub fn init_multithread() -> Receiver<Vec<u8>> {
     receiver
 }
 
-pub fn send_packet_from_thread<T: ServerboundPacket + Debug>(packet: T) -> Result<(), SerializeError> {
-    info!("Sending packet {}", T::ID);
+pub fn send_packet_from_thread<T: ServerboundPacket + Debug>(
+    packet: T,
+) -> Result<(), SerializeError> {
+    info!("Sending packet {:#0X?}", T::ID);
 
     let id = VarInt(T::ID as _);
     let packet_size = packet.size();

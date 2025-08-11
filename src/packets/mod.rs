@@ -1,6 +1,7 @@
 mod receive;
 mod send;
 
+use core::f32;
 use std::ops::Deref;
 
 use parking_lot::RwLock;
@@ -14,8 +15,8 @@ use crate::{
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
     datatypes::{Angle, LengthInferredByteArray, Or, VarInt},
     game::{
-        Color, Entity, EntityId, EntityRef, Game, GameError, IdSet, Rotation, SlotDisplay, Vec3,
-        Vec3d, Vec3i, entities,
+        ChunkPos, Color, Entity, EntityId, EntityRef, Game, GameError, IdSet, Rotation,
+        SlotDisplay, Vec3, Vec3d, Vec3i, entities,
         world::data::{ChunkData, LightData},
     },
     nbt::Nbt,
@@ -779,7 +780,7 @@ impl ClientboundPacket for SetEntityVelocity {
 #[derive(Debug, Deserialize)]
 pub struct ChunkDataWithLight {
     x: i32,
-    y: i32,
+    z: i32,
     data: ChunkData,
     light: LightData,
 }
@@ -787,4 +788,41 @@ pub struct ChunkDataWithLight {
 impl ClientboundPacket for ChunkDataWithLight {
     const ID: u32 = 0x27;
     const STATE: ConnectionState = ConnectionState::Play;
+
+    fn receive(self, _stream: &mut dyn ReadWrite, game: &RwLock<Game>) -> Result<(), ReceiveError> {
+        game.read().world.register_chunk_data(
+            ChunkPos {
+                x: self.x,
+                z: self.z,
+            },
+            self.data.into(),
+        );
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ChunkBatchFinished {
+    chunk_count: VarInt,
+}
+
+impl ClientboundPacket for ChunkBatchFinished {
+    const ID: u32 = 0x0B;
+    const STATE: ConnectionState = ConnectionState::Play;
+
+    fn receive(self, stream: &mut dyn ReadWrite, _game: &RwLock<Game>) -> Result<(), ReceiveError> {
+        send_packet(
+            stream,
+            ChunkBatchReceived {
+                chunks_per_tick: 1.,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[sb_id = 0x0A]
+pub struct ChunkBatchReceived {
+    chunks_per_tick: f32,
 }

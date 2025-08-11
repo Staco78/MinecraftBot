@@ -123,12 +123,14 @@ impl Nbt {
 
         loop {
             let id = u8::deserialize(stream)?;
-            let name = Self::deserialize_string(stream)?;
-            let value = Self::deserialize_by_id(stream, id)?;
 
-            if matches!(value, Self::End) {
+            if id == 0 {
+                // End
                 return Ok(data);
             }
+
+            let name = Self::deserialize_string(stream)?;
+            let value = Self::deserialize_by_id(stream, id)?;
 
             match data.entry(name) {
                 Entry::Vacant(e) => e.insert(value),

@@ -1,16 +1,18 @@
 pub mod entities;
 mod entity;
+mod gameloop;
 mod player;
 mod types;
-mod gameloop;
 pub mod world;
 
 pub use entities::{Entities, EntityRef};
 pub use entity::*;
+pub use gameloop::*;
 pub use player::Player;
 use thiserror::Error;
 pub use types::*;
-pub use gameloop::*;
+
+use crate::game::world::World;
 
 #[derive(Debug, Error)]
 pub enum GameError {
@@ -22,4 +24,5 @@ pub enum GameError {
 pub struct Game {
     pub player: Player,
     pub entities: Entities,
+    pub world: World,
 }

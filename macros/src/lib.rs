@@ -10,6 +10,12 @@ use syn::{
     parse_quote, punctuated::Punctuated, spanned::Spanned,
 };
 
+fn is_debug(name: &Ident) -> bool {
+    const DESERIALIZE_DEBUG_LIST: &[&str] = &[];
+    let name = name.to_string();
+    DESERIALIZE_DEBUG_LIST.contains(&&*name)
+}
+
 fn error(msg: String, span: Span) -> TokenStream {
     quote_spanned! {span=> compile_error!(#msg);}.into()
 }
@@ -375,6 +381,8 @@ fn deserialize_derive_struct(
 
     let fields = struct_parse_fields(data_struct);
 
+    let is_debug = is_debug(name);
+
     let codes = fields
         .into_iter()
         .map(|(field, member)| {
@@ -394,7 +402,12 @@ fn deserialize_derive_struct(
                     }));
             }
 
-            quote_spanned! {span=> #member: <#ty>::deserialize(stream)?}
+            if is_debug {
+                quote_spanned! {span=> #member: {let #member = <#ty>::deserialize(stream)?; dbg!(&#member); #member}}
+            }
+            else {
+                quote_spanned! {span=> #member: <#ty>::deserialize(stream)?}
+            }
         })
         .collect::<Vec<_>>();
 

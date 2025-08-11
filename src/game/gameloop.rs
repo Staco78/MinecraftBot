@@ -10,8 +10,7 @@ use std::{
 use parking_lot::RwLock;
 
 use crate::{
-    game::{Game, Vec3d},
-    packets::{PlayerPosFlags, ReceiveError, SetPlayerPosition, send_packet_from_thread},
+    datatypes::BlockPos, game::{Game, Vec3d, Vec3i}, packets::{send_packet_from_thread, PlayerPosFlags, ReceiveError, SetPlayerPosition}
 };
 
 static SHOULD_RUN: AtomicBool = AtomicBool::new(true);
@@ -72,6 +71,12 @@ fn game_logic(game: &RwLock<Game>) -> Result<(), ReceiveError> {
         pos: new_pos,
         flags: PlayerPosFlags::empty(),
     })?;
+
+    let block = game.read().world.block_at(BlockPos(Vec3i {
+        y: 70,
+        ..Default::default()
+    }));
+    dbg!(block);
 
     Ok(())
 }

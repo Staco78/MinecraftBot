@@ -1,4 +1,4 @@
-use crate::game::{entities::EntityRef};
+use crate::game::entities::EntityRef;
 
 #[derive(Debug, Default)]
 pub struct Player {

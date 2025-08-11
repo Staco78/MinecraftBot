@@ -7,7 +7,7 @@ use macros::Deserialize;
 use crate::{
     data::Deserialize,
     datatypes::{BitSet, VarInt, deserialize_slice},
-    game::world::data::palette_config::PaletteConfig,
+    game::{LocalBlockPos, world::data::palette_config::PaletteConfig},
     nbt::Nbt,
 };
 
@@ -125,24 +125,27 @@ impl<CONFIG: PaletteConfig> Deserialize for Palette<CONFIG> {
 }
 
 impl<CONFIG: PaletteConfig> Palette<CONFIG> {
-    pub fn get(&self, x: usize, y: usize, z: usize) -> i32 {
-        assert!(x < CONFIG::ENTRIES_PER_AXE);
-        assert!(y < CONFIG::ENTRIES_PER_AXE);
-        assert!(z < CONFIG::ENTRIES_PER_AXE);
+    pub fn get(&self, pos: LocalBlockPos) -> i32 {
+        let LocalBlockPos { x, y, z } = pos;
+        assert!((x as usize) < CONFIG::ENTRIES_PER_AXE);
+        assert!((y as usize) < CONFIG::ENTRIES_PER_AXE);
+        assert!((z as usize) < CONFIG::ENTRIES_PER_AXE);
 
         match self {
             Palette::SingleValued { id, .. } => id.0,
             Palette::Indirect { palette, data, bpe } => {
-                let idx = Self::get_from_data(data, *bpe, x, y, z);
+                let idx = Self::get_from_data(data, *bpe, pos);
                 assert!(idx < palette.len());
                 palette[idx].0
             }
-            Palette::Direct { data, bpe } => Self::get_from_data(data, *bpe, x, y, z) as i32,
+            Palette::Direct { data, bpe } => Self::get_from_data(data, *bpe, pos) as i32,
         }
     }
 
-    fn get_from_data(data: &[u64], bpe: i32, x: usize, y: usize, z: usize) -> usize {
-        let idx = ((y * CONFIG::ENTRIES_PER_AXE) + z) * CONFIG::ENTRIES_PER_AXE + x;
+    fn get_from_data(data: &[u64], bpe: i32, pos: LocalBlockPos) -> usize {
+        let LocalBlockPos { x, y, z } = pos;
+        let idx = ((y as usize * CONFIG::ENTRIES_PER_AXE) + z as usize) * CONFIG::ENTRIES_PER_AXE
+            + x as usize;
         let entries_per_long = (64 / bpe) as usize;
         let long_idx = idx / entries_per_long;
         let offset = bpe as usize * (idx - (entries_per_long * long_idx));

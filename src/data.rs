@@ -22,6 +22,8 @@ pub enum DeserializeError {
     MalformedPacket(String),
     #[error("NBT error: {0}")]
     Nbt(#[from] NbtError),
+    #[error("Implementation tried to read more than the packet size")]
+    UnexpectedFail,
 }
 
 pub trait Deserialize: Sized {

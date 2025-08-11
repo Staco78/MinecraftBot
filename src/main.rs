@@ -25,7 +25,8 @@ const PROTOCOL_VERSION: i32 = 772;
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::builder()
-        .filter_level(LevelFilter::Trace)
+        .filter_level(LevelFilter::Debug)
+        .parse_default_env()
         .format_timestamp(None)
         .format_source_path(false)
         .format_file(true)
@@ -73,8 +74,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 error!("IO ERROR: {e}");
                 exit(-1);
             }
-            Err(ReceiveError::UnknownPacketId(id)) => warn!("Packet {id} ignored"),
-            Err(e) => error!("{:?}", e),
+            Err(ReceiveError::UnknownPacketId(id)) => warn!("Packet {:#0X?} ignored", id),
+            Err(e) => error!("{}", e),
             Ok(()) => (),
         }
 

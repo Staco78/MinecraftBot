@@ -1,10 +1,19 @@
-use std::ops::{Add, AddAssign, Mul, Neg, Sub};
+use std::{
+    hash::Hash,
+    ops::{Add, AddAssign, Mul, Neg, Sub},
+};
 
 use macros::{Deserialize, Serialize};
 
-use crate::datatypes::{Angle, VarInt};
+use crate::datatypes::{Angle, BlockPos, VarInt};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub struct Vec2<T> {
+    pub x: T,
+    pub z: T,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct Vec3<T> {
     pub x: T,
     pub y: T,
@@ -14,83 +23,138 @@ pub struct Vec3<T> {
 pub type Vec3i = Vec3<i32>;
 pub type Vec3d = Vec3<f64>;
 
-impl Vec3d {
-    pub fn length(&self) -> f64 {
-        let Vec3d { x, y, z } = self;
-        (x * x + y * y + z * z).sqrt()
+pub type Vec2i = Vec2<i32>;
+
+pub type ChunkPos = Vec2i;
+pub type ChunkSectionPos = Vec3i;
+pub type LocalBlockPos = Vec3<u8>;
+
+impl From<ChunkSectionPos> for ChunkPos {
+    fn from(value: ChunkSectionPos) -> Self {
+        Self {
+            x: value.x,
+            z: value.z,
+        }
     }
 }
 
-macro_rules! impl_from {
-    ($source: ty, $dest: ty) => {
-        impl From<Vec3<$source>> for Vec3<$dest> {
-            fn from(source: Vec3<$source>) -> Self {
-                let Vec3::<_> { x, y, z } = source;
-                Self {
-                    x: x.into(),
-                    y: y.into(),
-                    z: z.into(),
+fn calc_axis_chunk_pos(x: i32) -> i32 {
+    if x >= 0 || x % 16 == 0 {
+        x / 16
+    } else {
+        x / 16 - 1
+    }
+}
+
+impl ChunkPos {
+    /// Convert a block pos to a chunk pos
+    pub fn from_block_pos(pos: BlockPos) -> Self {
+        Self {
+            x: calc_axis_chunk_pos(pos.0.x),
+            z: calc_axis_chunk_pos(pos.0.z),
+        }
+    }
+}
+
+impl ChunkSectionPos {
+    /// Convert a block pos to a chunk section pos
+    pub fn from_block_pos(pos: BlockPos) -> Self {
+        Self {
+            x: calc_axis_chunk_pos(pos.0.x),
+            y: calc_axis_chunk_pos(pos.0.y),
+            z: calc_axis_chunk_pos(pos.0.z),
+        }
+    }
+}
+
+impl LocalBlockPos {
+    pub fn from_global_block_pos(pos: BlockPos) -> Self {
+        fn calc(x: i32) -> u8 {
+            let r = x % 16;
+            if r < 0 { (r + 16) as u8 } else { r as u8 }
+        }
+
+        Self {
+            x: calc(pos.0.x),
+            y: calc(pos.0.y),
+            z: calc(pos.0.z),
+        }
+    }
+}
+
+macro_rules! impl_ops {
+    ($name: ident, {$($field:ident),*}) => {
+        macro_rules! impl_from {
+            ($source: ty, $dest: ty) => {
+                impl From<$name<$source>> for $name<$dest> {
+                    fn from(source: $name<$source>) -> Self {
+                        let $name::<_> { $($field),* } = source;
+                        Self {
+                           $($field: $field.into()),*
+                        }
+                    }
                 }
+            };
+        }
+
+        impl_from!(i32, f64);
+        impl_from!(VarInt, i32);
+
+        impl<T: Add<Output = T>> Add for $name<T> {
+            type Output = Self;
+            fn add(self, rhs: Self) -> Self::Output {
+                Self {
+                    $($field: self.$field + rhs.$field),*
+                }
+            }
+        }
+
+        impl<T: AddAssign> AddAssign for $name<T> {
+            fn add_assign(&mut self, rhs: Self) {
+                $(self.$field += rhs.$field;)*
+            }
+        }
+
+        impl<T: Sub<Output = T>> Sub for $name<T> {
+            type Output = Self;
+            fn sub(self, rhs: Self) -> Self::Output {
+                Self {
+                    $($field: self.$field - rhs.$field),*
+                }
+            }
+        }
+
+        impl<T: Neg<Output = T>> Neg for $name<T> {
+            type Output = Self;
+            fn neg(self) -> Self::Output {
+                Self {
+                    $($field: -self.$field),*
+                }
+            }
+        }
+
+        impl<T: Mul<Output = T> + Copy> Mul<T> for $name<T> {
+            type Output = $name<T>;
+
+            fn mul(self, rhs: T) -> Self::Output {
+                Self {
+                    $($field: rhs * self.$field),*
+                }
+            }
+        }
+
+        impl $name<f64> {
+            #[allow(dead_code)]
+            pub fn length(&self) -> f64 {
+                let $name { $($field),* } = self;
+                ($($field * $field +)* 0.).sqrt()
             }
         }
     };
 }
 
-impl_from!(i32, f64);
-impl_from!(VarInt, i32);
-
-impl<T: Add<Output = T>> Add for Vec3<T> {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
-        }
-    }
-}
-
-impl<T: AddAssign> AddAssign for Vec3<T> {
-    fn add_assign(&mut self, rhs: Self) {
-        self.x += rhs.x;
-        self.y += rhs.y;
-        self.z += rhs.z;
-    }
-}
-
-impl<T: Sub<Output = T>> Sub for Vec3<T> {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
-        }
-    }
-}
-
-impl<T: Neg<Output = T>> Neg for Vec3<T> {
-    type Output = Self;
-    fn neg(self) -> Self::Output {
-        Self {
-            x: -self.x,
-            y: -self.y,
-            z: -self.z,
-        }
-    }
-}
-
-impl<T: Mul<Output = T> + Copy> Mul<T> for Vec3<T> {
-    type Output = Vec3<T>;
-
-    fn mul(self, rhs: T) -> Self::Output {
-        Self {
-            x: rhs * self.x,
-            y: rhs * self.y,
-            z: rhs * self.z,
-        }
-    }
-}
+impl_ops!(Vec2, {x, z});
+impl_ops!(Vec3, {x, y, z});
 
 impl Vec3d {
     pub fn speed_from_entity_velocity(vx: i16, vy: i16, vz: i16) -> Self {

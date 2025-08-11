@@ -9,9 +9,7 @@ pub use varint::*;
 
 use core::slice;
 use std::{
-    io::{Read, Write},
-    mem::MaybeUninit,
-    ops::Deref,
+    fmt::Debug, io::{Read, Write}, mem::MaybeUninit, ops::Deref
 };
 
 use crate::{
@@ -250,7 +248,7 @@ impl<T: Serialize> Serialize for Vec<T> {
     }
 }
 
-impl<T: Deserialize> Deserialize for Vec<T> {
+impl<T: Deserialize + Debug> Deserialize for Vec<T> {
     fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         let len = VarInt::deserialize(stream)?.0 as usize;
         let data = (0..len)
@@ -369,10 +367,10 @@ impl<T: Deserialize> Deserialize for Box<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BlockPosition(pub Vec3i);
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BlockPos(pub Vec3i);
 
-impl Deserialize for BlockPosition {
+impl Deserialize for BlockPos {
     fn deserialize(stream: &mut crate::data::DataStream) -> Result<Self, DeserializeError> {
         let val = i64::deserialize(stream)?;
 

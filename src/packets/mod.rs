@@ -13,10 +13,10 @@ use macros::{Deserialize, Serialize};
 use crate::{
     bitflags,
     data::{DataStream, Deserialize, DeserializeError, ReadWrite, Serialize, SerializeError},
-    datatypes::{Angle, LengthInferredByteArray, Or, VarInt},
+    datatypes::{Angle, BlockPos, LengthInferredByteArray, Or, VarInt},
     game::{
         ChunkPos, Color, Entity, EntityId, EntityRef, Game, GameError, IdSet, Rotation,
-        SlotDisplay, Vec3, Vec3d, Vec3i, entities,
+        SlotDisplay, Vec3, Vec3d, entities,
         world::data::{ChunkData, LightData},
     },
     nbt::Nbt,
@@ -31,6 +31,7 @@ pub struct Handshake {
     pub intent: VarInt,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[sb_id = 0]
 pub struct StatusRequest {}
@@ -41,6 +42,7 @@ pub struct StatusResponse {
     pub response: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 #[sb_id = 1]
 pub struct PingPong {
@@ -222,7 +224,7 @@ pub struct Login {
 #[derive(Debug, Deserialize)]
 pub struct DeathLocation {
     pub dimension_name: String,
-    pub location: Vec3i,
+    pub location: BlockPos,
 }
 
 impl ClientboundPacket for Login {
@@ -553,6 +555,7 @@ pub struct SetPlayerPosition {
     pub flags: PlayerPosFlags,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Serialize)]
 #[sb_id = 0x1E]
 pub struct SetPlayerPositionRotation {
@@ -801,6 +804,7 @@ impl ClientboundPacket for ChunkDataWithLight {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct ChunkBatchFinished {
     chunk_count: VarInt,
@@ -825,4 +829,21 @@ impl ClientboundPacket for ChunkBatchFinished {
 #[sb_id = 0x0A]
 pub struct ChunkBatchReceived {
     chunks_per_tick: f32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BlockUpdate {
+    pos: BlockPos,
+    id: VarInt,
+}
+
+impl ClientboundPacket for BlockUpdate {
+    const ID: u32 = 0x08;
+    const STATE: ConnectionState = ConnectionState::Play;
+
+    fn receive(self, _stream: &mut dyn ReadWrite, game: &RwLock<Game>) -> Result<(), ReceiveError> {
+        game.read().world.set_block(self.pos, self.id.0);
+
+        Ok(())
+    }
 }

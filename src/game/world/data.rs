@@ -2,12 +2,13 @@
 
 use std::marker::PhantomData;
 
+use super::palette::palette_config::{self, PaletteConfig};
+
 use macros::Deserialize;
 
 use crate::{
     data::Deserialize,
     datatypes::{BitSet, VarInt, deserialize_slice},
-    game::{LocalBlockPos, world::data::palette_config::PaletteConfig},
     nbt::Nbt,
 };
 
@@ -15,7 +16,7 @@ use crate::{
 pub struct ChunkData {
     pub heightmaps: Vec<Heightmap>,
     data_size: VarInt,
-    pub chunk_sections: [ChunkSection; 24], // 24 only in overworld
+    pub chunk_sections: [ProtocolChunkSection; 24], // 24 only in overworld
     pub block_entities: Vec<BlockEntity>,
 }
 
@@ -42,65 +43,39 @@ pub enum HeightmapType {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ChunkSection {
+pub struct ProtocolChunkSection {
     pub block_count: u16,
-    pub blocks: Palette<palette_config::Blocks>,
-    pub biomes: Palette<palette_config::Biomes>,
-}
-
-mod palette_config {
-    pub trait PaletteConfig {
-        const ENTRIES_PER_AXE: usize;
-
-        const DIRECT_BPE: i32;
-    }
-
-    #[derive(Debug)]
-    pub struct Blocks;
-    impl PaletteConfig for Blocks {
-        const ENTRIES_PER_AXE: usize = 16;
-
-        const DIRECT_BPE: i32 = 15;
-    }
-
-    #[derive(Debug)]
-    pub struct Biomes;
-    impl PaletteConfig for Biomes {
-        const ENTRIES_PER_AXE: usize = 4;
-        const DIRECT_BPE: i32 = 6;
-    }
+    pub blocks: ProtocolPalette<palette_config::Blocks>,
+    pub biomes: ProtocolPalette<palette_config::Biomes>,
 }
 
 #[derive(Debug)]
-pub enum Palette<CONFIG: PaletteConfig> {
+pub enum ProtocolPalette<CONFIG: PaletteConfig> {
     SingleValued {
         id: VarInt,
         _phantom: PhantomData<CONFIG>,
     },
     Indirect {
-        bpe: i32,
+        bpe: u32,
         palette: Vec<VarInt>,
         data: Vec<u64>,
     },
     Direct {
-        bpe: i32,
+        bpe: u32,
         data: Vec<u64>,
     },
 }
 
-impl<CONFIG: PaletteConfig> Deserialize for Palette<CONFIG> {
+impl<CONFIG: PaletteConfig> Deserialize for ProtocolPalette<CONFIG> {
     fn deserialize(
         stream: &mut crate::data::DataStream,
     ) -> Result<Self, crate::data::DeserializeError> {
-        let bpe = VarInt::deserialize(stream)?.0;
+        let bpe = VarInt::deserialize(stream)?.0 as u32;
 
         // for indirect or direct palette
         let data_length = || {
             let entries_per_long = 64 / bpe;
-            usize::div_ceil(
-                usize::pow(CONFIG::ENTRIES_PER_AXE, 3),
-                entries_per_long as usize,
-            )
+            usize::div_ceil(CONFIG::ENTRIES_COUNT, entries_per_long as usize)
         };
 
         match bpe {
@@ -121,38 +96,6 @@ impl<CONFIG: PaletteConfig> Deserialize for Palette<CONFIG> {
             }
             _ => panic!("Invalid bpe: {}", bpe),
         }
-    }
-}
-
-impl<CONFIG: PaletteConfig> Palette<CONFIG> {
-    pub fn get(&self, pos: LocalBlockPos) -> i32 {
-        let LocalBlockPos { x, y, z } = pos;
-        assert!((x as usize) < CONFIG::ENTRIES_PER_AXE);
-        assert!((y as usize) < CONFIG::ENTRIES_PER_AXE);
-        assert!((z as usize) < CONFIG::ENTRIES_PER_AXE);
-
-        match self {
-            Palette::SingleValued { id, .. } => id.0,
-            Palette::Indirect { palette, data, bpe } => {
-                let idx = Self::get_from_data(data, *bpe, pos);
-                assert!(idx < palette.len());
-                palette[idx].0
-            }
-            Palette::Direct { data, bpe } => Self::get_from_data(data, *bpe, pos) as i32,
-        }
-    }
-
-    fn get_from_data(data: &[u64], bpe: i32, pos: LocalBlockPos) -> usize {
-        let LocalBlockPos { x, y, z } = pos;
-        let idx = ((y as usize * CONFIG::ENTRIES_PER_AXE) + z as usize) * CONFIG::ENTRIES_PER_AXE
-            + x as usize;
-        let entries_per_long = (64 / bpe) as usize;
-        let long_idx = idx / entries_per_long;
-        let offset = bpe as usize * (idx - (entries_per_long * long_idx));
-
-        let mask = (1 << bpe) - 1;
-
-        ((data[long_idx] >> offset) & mask) as usize
     }
 }
 

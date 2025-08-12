@@ -27,7 +27,7 @@ pub type Vec2i = Vec2<i32>;
 
 pub type ChunkPos = Vec2i;
 pub type ChunkSectionPos = Vec3i;
-pub type LocalBlockPos = Vec3<u8>;
+pub type LocalPos = Vec3<u8>;
 
 impl From<ChunkSectionPos> for ChunkPos {
     fn from(value: ChunkSectionPos) -> Self {
@@ -47,6 +47,7 @@ fn calc_axis_chunk_pos(x: i32) -> i32 {
 }
 
 impl ChunkPos {
+    #[allow(dead_code)]
     /// Convert a block pos to a chunk pos
     pub fn from_block_pos(pos: BlockPos) -> Self {
         Self {
@@ -67,7 +68,7 @@ impl ChunkSectionPos {
     }
 }
 
-impl LocalBlockPos {
+impl LocalPos {
     pub fn from_global_block_pos(pos: BlockPos) -> Self {
         fn calc(x: i32) -> u8 {
             let r = x % 16;

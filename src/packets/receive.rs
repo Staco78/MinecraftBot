@@ -9,11 +9,7 @@ use crate::{
     datatypes::{LengthInferredByteArray, VarInt},
     game::{Game, GameError},
     packets::{
-        AddEntity, ChangeDifficulty, ChunkBatchFinished, ChunkDataWithLight, EntityEvent,
-        FeatureFlags, FinishConfiguration, KeepAlive, KnownPacks, Login, LoginSuccess,
-        PlayerAbilities, PlayersInfoUpdate, PluginMessage, RegistryData, SetEntityVelocity,
-        SetHeldItem, SynchronizePlayerPosition, TeleportEntity, UpdateEntityPosition,
-        UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint,
+        AddEntity, BlockUpdate, ChangeDifficulty, ChunkBatchFinished, ChunkDataWithLight, EntityEvent, FeatureFlags, FinishConfiguration, KeepAlive, KnownPacks, Login, LoginSuccess, PlayerAbilities, PlayersInfoUpdate, PluginMessage, RegistryData, SetEntityVelocity, SetHeldItem, SynchronizePlayerPosition, TeleportEntity, UpdateEntityPosition, UpdateEntityPositionRotation, UpdateRecipes, UpdateTags, Waypoint
     },
 };
 
@@ -185,7 +181,8 @@ impl<'a> PacketReceiver<'a> {
             TeleportEntity,
             SetEntityVelocity,
             ChunkDataWithLight,
-            ChunkBatchFinished
+            ChunkBatchFinished,
+            BlockUpdate
         )
     }
 }
